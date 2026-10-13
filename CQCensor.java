@@ -23,7 +23,7 @@ import static cqcensors.QueryChecker.loadEDPolicyFromJson;
 import static cqcensors.util.OntologyUtils.loadOntology;
 import static cqcensors.Increment.Increment_all;
 import static cqcensors.Increment.Increment_all_non_zeros;
-import static cqcensors.Increment.printArray;
+//import static cqcensors.Increment.printArray;
 
 /**
  *
@@ -267,7 +267,7 @@ public class CQCensor {
     	}
     }
     
-    public Result compute_homomorphisms(Set<OntologyPredicateAtom> body_atoms, Set<PredicateAtom> query_atoms, List<Variable> universally_quantified_vars) {
+    public Result compute_homomorphisms(ArrayList<OntologyPredicateAtom> body_atoms, Set<PredicateAtom> query_atoms, List<Variable> universally_quantified_vars) {
     	ArrayList<ArrayList<HashMap<Term, Term>>> H = new ArrayList<ArrayList<HashMap<Term, Term>>>();
     	
     	/*
@@ -352,7 +352,8 @@ public class CQCensor {
     */
     
     // Maybe: public Set<ConjunctiveQuery>
-    public Set<Formula> ComputeClashQueries(Set<EpistemicDependency> policy) throws IOException{
+    @SuppressWarnings("unchecked")
+	public Set<Formula> ComputeClashQueries(Set<EpistemicDependency> policy) throws IOException{
         
         Set<Formula> res = new HashSet<>();
         
@@ -381,7 +382,12 @@ public class CQCensor {
         	System.out.println("*** Free variables ***");
         	System.out.println(universally_quantified_vars);
         	
-        	Set<OntologyPredicateAtom> ED_atoms = body.getAllPredicateAtoms();
+        	Set<OntologyPredicateAtom> atoms = body.getAllPredicateAtoms();
+        	// We store everything in an ArrayList, since we'll need to preserve the order
+        	ArrayList<OntologyPredicateAtom> ED_atoms = new ArrayList<>();
+        	for (OntologyPredicateAtom a: atoms) {
+        		ED_atoms.add(a);        	
+        	}
         	
         	// Compute the homomorphisms from the atoms in the body of the ED
         	// to the atoms of the query
@@ -401,56 +407,67 @@ public class CQCensor {
         	int l = homomorphisms.size();
         	if (l == 0) continue; // No homomorphisms for this delta
         	
-        	int[] K = new int[l];
+        	// We compute K, an array storing the counter of the number of homomorphisms 
+        	// found for each atom (except those for which the count is zero.
+        	ArrayList<Integer> K = new ArrayList<>();
         	
-        	int i = 0;
         	for (ArrayList<HashMap<Term, Term>> a: homomorphisms) {
-        		K[i] = a.size();
-        		i += 1;
+        		K.add(a.size());
         	}
         	System.out.println("*** Printing K ***");
-        	System.out.print("K: [");
-        	for (int j = 0; j < K.length; j++) {
-        		System.out.print(K[j] + " ");
-        	}
-        	System.out.println("]");
+        	System.out.println(K);
         	
         	// Initialization of the matrix (or hashmap) M 
         	
-        	int[] A = new int[l];
+        	ArrayList<Integer> A = new ArrayList<>();
         	for (int j = 0; j < l; j++) {
-        		A[j] = 0;
+        		A.add(0);
         	}
-        	HashMap<int[], Integer> M = initialize_map(A, K, l);
+        	HashMap<ArrayList<Integer>, Integer> M = initialize_map(A, K, l);
         	
         	
         	System.out.println("*** HashMap M ***");
         	for (var entry : M.entrySet()) {
-                String keyStr = Arrays.toString(entry.getKey());
+                ArrayList<Integer> keyStr = entry.getKey();
                 Integer value = entry.getValue();
-                System.out.println("Key: " + keyStr + " -> Value: " + value);
+                System.out.print(keyStr + ":" + value + "  ");
             }
+        	System.out.println();
         	
         	
         	/*
         	 * EXPLORE: Next we explore all the possible combinations of homomorphisms to keep
         	 * 			just the admissible ones.
         	 */
-        	int[] A_init = new int[l];
-        	for (int j = 0; j < l; j++) {
-        		A_init[j] = 1; 
+        	ArrayList<Integer> A_init = new ArrayList<>();
+        	// Initialize Ainit with all 1s
+        	for (int i = 0; i < l; i++) {
+        		A_init.add(1); 
         	}
         	
-        	int[] A1 = A_init.clone();
-        	int[] A2 = new int[l];
+        	ArrayList<Integer> A1 = (ArrayList<Integer>) A_init.clone();
+        	ArrayList<Integer> A2 = new ArrayList<>();
+        	
         	
         	do {
-	        	M = CheckClash(ed, homomorphisms, A1, M, l);
-	        	A2 = A1.clone(); 
+	        	M = CheckClash(ED_atoms, homomorphisms, A1, M, l, indexes);
+	        	A2 = (ArrayList<Integer>) A1.clone(); 
 	        	A1 = Increment_all_non_zeros(A1, K);
-        	} while (A1.equals(A2));
+        	} while (!A1.equals(A2));
+        	
+        	
+        	System.out.println("*** HashMap M after CHECK CLASH ***");
+        	for (var entry : M.entrySet()) {
+                ArrayList<Integer> keyStr = entry.getKey();
+                Integer value = entry.getValue();
+                System.out.print(keyStr + ":" + value + "  ");
+            }
+        	System.out.println();
         
         }
+        
+        // TODO: Generate Conjunctive Queries
+        
         
         
         return res;
@@ -458,23 +475,26 @@ public class CQCensor {
     }
     
     
-    private HashMap<int[], Integer> initialize_map(int[] A, int[] K, int l) {
+    private HashMap<ArrayList<Integer>, Integer> initialize_map(ArrayList<Integer> A, ArrayList<Integer> K, int l) {
     	
-    	HashMap<int[], Integer> M = new HashMap<int[], Integer>(); 
+    	/*
+    	 * Auxiliary method to initialize the Map M containing the possible combinations of homomorphisms
+    	 */
     	
-    	M.put(A, 0); // M[0,...,0] = 0
+    	HashMap<ArrayList<Integer>, Integer> M = new HashMap<ArrayList<Integer>, Integer>(); 
     	
+    	M.put(A, 0); // M[0,...,0] = 0 since it corresponds to the body
     	
-    	int[] A1 = A.clone();
-    	int[] A2 = new int[l];
+    	ArrayList<Integer> A1 = (ArrayList<Integer>) A.clone();
+    	ArrayList<Integer> A2 = new ArrayList<>();
     	
     	// Initialize A2 with -1s
     	for (int i = 0; i < l; i++) {
-    		A2[i] = -1;
+    		A2.add(-1);
     	}
     	
-    	while (!Arrays.equals(A1, A2)) {
-    		A2 = A1.clone();
+    	while (!A1.equals(A2)) {
+    		A2 = (ArrayList<Integer>) A1.clone();
     		A1 = Increment_all(A1, K);
     		M.putIfAbsent(A1, 1);
     	}
@@ -483,27 +503,130 @@ public class CQCensor {
     }
     
     
-    private HashMap<int[], Integer> CheckClash(EpistemicDependency ed, ArrayList<ArrayList<HashMap<Term, Term>>> H, int[] A, HashMap<int[], Integer> M, int l) {
+    private HashMap<ArrayList<Integer>, Integer> CheckClash(ArrayList<OntologyPredicateAtom> ED_atoms, ArrayList<ArrayList<HashMap<Term, Term>>> H, 
+    														ArrayList<Integer> A, HashMap<ArrayList<Integer>, Integer> M, int l, ArrayList<Integer> I) {
     	/*
     	 * H: An ArrayList of ArrayLists storing the homomorphisms for each atom
     	 * A: an array representing the choice of homomorphisms
     	 * M: the HashMap where the keys represent the choices of homomorphisms, and the value is 1, if that given choice is admissible, 0 otherwise.
     	 * l: the size of A
+    	 * I: indexes
     	 */
-    	HashMap<int[], Integer> M1 = (HashMap<int[], Integer>) M.clone();
+    	//HashMap<int[], Integer> M1 = (HashMap<int[], Integer>) M.clone();
+    	
+    	System.out.println("*** A ***: " + A);
     	
     	ArrayList<HashMap<Term, Term>> sigma = new ArrayList<HashMap<Term, Term>>();
     	
-    	for (int i = 0; i < l; i++) {
-    		sigma.add(H.get(i).get(A[i]-1));
+    	// Initialize the array B
+    	// B = {alpha_i | A[i] > 0}
+    	
+    	int num_atoms = ED_atoms.size();
+    	
+    	ArrayList<OntologyPredicateAtom> B = new ArrayList<>();
+    	
+    	for (int i = 0; i < num_atoms; i++) {
+    		if (!I.contains(i)) {
+    			// I contains only the indexes of the atoms for which
+    			// we found at least one homo
+    			B.add(ED_atoms.get(i));
+    		}
     	}
     	
+    	for (int i = 0; i < l; i++) {
+    		if (A.get(i) == 0) {
+    			B.add(ED_atoms.get(I.get(i)));
+    		}
+    	}
+    	
+    	for (int i = 0; i < l; i++) {
+    		if (A.get(i) > 0) {
+    			sigma.add(H.get(i).get(A.get(i)-1));	// H[1][A[1] \cup ... \cup H[l]A[l]
+    		}
+    	}
+    	
+    	System.out.println("*** Printing B ***");
+    	System.out.println(B);
+    	
+    	/*
+    	 * CHECK ADIMISSIBILITY
+    	 * Sigma is admissible if it passes the following two checks:
+    	 *     -1: it is a homomorphism
+    	 *     -2: if x is a variable occurring in the domain of sigma and sigma(x) is a variable. 
+    	 *         then x does not appear in Atoms(ED) minus dom(sigma).
+    	 */
+    	
+    	boolean adm = true;
+    	
+    	for (HashMap<Term, Term> h1: sigma) {
+    		for (var entry: h1.entrySet()) {
+    			for (HashMap<Term, Term> h2: sigma) {
+    				if (!h1.equals(h2)) {
+    					for (var entry2: h2.entrySet()) {
+    						if (entry.getKey().equals(entry2.getKey()) && !entry.getValue().equals(entry2.getValue())) { 
+    							// This is not even a homomorphism, the same variable is mapped to two different values
+    							adm = false;
+    							break;
+    						}
+    					}
+    				}
+    				if (!adm) break;
+    			}
+    			if (!adm) break;
+    			
+    			// Check the second condition
+    			if (entry.getValue() instanceof Variable) {
+    				Variable v = (Variable) entry.getKey();
+    				for (OntologyPredicateAtom oa: B) {
+    					if (oa.getFreeVariables().contains(v)) {
+    						// Condition 2 is not satisfied
+    						System.out.println("Condition 2 is not sat");
+    						adm = false;
+    						break;
+    						
+    					}
+    				}
+    				
+    			}
+    		}
+    		if (!adm) {
+    			M.replace(A, 0);	// Set the entry M[A] = 0;
+    			break;
+    		}
+    	}
+    	
+    	int counter = 0;
+    	for (int i = 0; i < l; i++) {
+    		if (A.get(i) > 0) {
+    			counter += 1; 
+    			if (counter > 1) break;
+    		}
+    	}
+    	
+    	if (counter < 2) {
+    		return M;
+    	}
+    	
+    	for (int i = 0; i < l; i++) {
+    		if (A.get(i) != 0) {
+    			@SuppressWarnings("unchecked")
+				ArrayList<Integer> A1 = (ArrayList<Integer>) A.clone();
+    			A1.set(i, 0);
+    			System.out.println("Enetering");
+    			if ((int) M.get(A1) != 0) {
+    				System.out.println("Recursively calling CheckClash");
+    				M = CheckClash(ED_atoms, H, A1, M, l, I);
+    			}
+    		}
+    	}
+    	
+ 
     	
     	System.out.println("*** Printing SIGMA ***");
     	System.out.println(sigma);
     	
     	
-    	return M1;
+    	return M;
     	
     }
     
