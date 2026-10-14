@@ -10,6 +10,7 @@ import cqcensors.policy.DependencyGraph;
 import cqcensors.policy.OntologyConjunctiveQuery;
 import cqcensors.parser.ParserException;
 import cqcensors.fol.DataConstant.DatatypeNoMatchException;
+import cqcensors.fol.Term.TermTypeException;
 
 import org.semanticweb.owlapi.model.*;
 import java.util.*;
@@ -353,9 +354,9 @@ public class CQCensor {
     
     // Maybe: public Set<ConjunctiveQuery>
     @SuppressWarnings("unchecked")
-	public Set<Formula> ComputeClashQueries(Set<EpistemicDependency> policy) throws IOException{
+	public Set<OntologyConjunctiveQuery> ComputeClashQueries(Set<EpistemicDependency> policy) throws IOException{
         
-        Set<Formula> res = new HashSet<>();
+        Set<OntologyConjunctiveQuery> Q = new HashSet<>();
         
         // parse the query
         String sparql_query = "";
@@ -463,14 +464,106 @@ public class CQCensor {
                 System.out.print(keyStr + ":" + value + "  ");
             }
         	System.out.println();
+        	
+        	
+        	// Generate Conjunctive Queries
+        	
+        	int num_atoms = ED_atoms.size();
+        	
+            for (var entry: M.entrySet()) {
+            	
+            	
+            	if (entry.getValue() == 1) {
+            		ArrayList<Integer> key = entry.getKey();
+                	
+            		// List of the atoms in the body not considered by the homomorphism
+            		ArrayList<OntologyPredicateAtom> QDiff = new ArrayList<OntologyPredicateAtom>();
+            		for (int i = 0; i < num_atoms; i++) {
+                		if (!indexes.contains(i)) {
+                			// I contains only the indexes of the atoms for which
+                			// we found at least one homo
+                			QDiff.add(ED_atoms.get(i));
+                		}
+                	}
+            		
+                	
+                	for (int i = 0; i < l; i++) {
+                		if (key.get(i) == 0) {
+                			QDiff.add(ED_atoms.get(indexes.get(i)));
+                		}
+                	}
+            		
+                	ArrayList<HashMap<Term, Term>> sigma = new ArrayList<HashMap<Term, Term>>();
+                	for (int i = 0; i < l; i++) {
+                		if (key.get(i) > 0) {
+                			sigma.add(homomorphisms.get(i).get(key.get(i)-1));	// H[1][A[1] \cup ... \cup H[l]A[l]
+                		}
+                	}
+                	
+                	HashSet<PredicateAtom> cq_atoms = new HashSet<>();
+                	
+                	System.out.println("*** QDiff ***");
+                	System.out.println(QDiff);
+                	
+                	List<Variable> free_vars = new ArrayList<>(ed.getUniversallyQuantifiedVariables()); // Need them to build the Conjunctive Query
+                	
+                	// For each atom not mapped by the current choice of homomorphisms,
+                	// we see if we can apply h to some of its terms.
+                	for (OntologyPredicateAtom a: QDiff) {
+                		System.out.println("Atom: " + a);
+                		//ArrayList<Term> terms = new ArrayList<>(); 
+                		ArrayList<Term> atom_terms = new ArrayList<>(a.getTerms());		// get the atom terms. We keep track of them in case they are not mapped by the homomorphism
+                		
+                		for (HashMap<Term,Term> h: sigma) {
+                			for (var e: h.entrySet()) {
+                				int i = 0;	// → to keep track of the index of the term (can be 0 or 1)
+                				for (Term t: a.getTerms()) {
+                					
+                					if (t.equals(e.getKey())) {
+                						//terms.add(e.getValue());
+                						atom_terms.set(i, e.getValue());	// replace the term with the one mapped by the homomorphism
+                						if (t instanceof Variable) {
+                							Variable x = new Variable(((Variable) t).getName());
+                							x.unbind();
+                							if (free_vars.contains(x)) {
+	                							System.out.println("*** Removing the free variable: " + t);
+	                							free_vars.remove(x);
+                							}
+                						}
+                					}
+                					i += 1;
+                				}
+                				
+                			}
+                		}
+                		
+                		
+                		cq_atoms.add(new PredicateAtom(a.getPredicateName(), atom_terms));
+                		
+                	}
+                	
+                	try {
+                		System.out.println("Free vars: " + free_vars);
+						OntologyConjunctiveQuery cq = new OntologyConjunctiveQuery(cq_atoms, free_vars);
+						Q.add(cq);
+						System.out.println("Candidate clash query: " + cq);
+					} catch (TermTypeException e) {
+						// TODO Auto-generated catch block
+						e.printStackTrace();
+					}
+                	
+            		
+            	}
+            }
         
         }
         
-        // TODO: Generate Conjunctive Queries
+        System.out.println("*** Printing the Candidate clash queries ***");
+        for (OntologyConjunctiveQuery ocq: Q) {
+        	System.out.println(ocq);
+        }
         
-        
-        
-        return res;
+        return Q;
         
     }
     
@@ -479,6 +572,8 @@ public class CQCensor {
     	
     	/*
     	 * Auxiliary method to initialize the Map M containing the possible combinations of homomorphisms
+    	 * At the beginning everything is initialized with 1s (since every combination of homomorphisms is 
+    	 * potentially admissible) except for M[0,...,0] that is set to 0 since it corresponds to body of delta
     	 */
     	
     	HashMap<ArrayList<Integer>, Integer> M = new HashMap<ArrayList<Integer>, Integer>(); 
@@ -512,30 +607,26 @@ public class CQCensor {
     	 * l: the size of A
     	 * I: indexes
     	 */
-    	//HashMap<int[], Integer> M1 = (HashMap<int[], Integer>) M.clone();
-    	
-    	System.out.println("*** A ***: " + A);
     	
     	ArrayList<HashMap<Term, Term>> sigma = new ArrayList<HashMap<Term, Term>>();
     	
-    	// Initialize the array B
-    	// B = {alpha_i | A[i] > 0}
+    	// Initialize the array QDiff containing the atoms not mapped by H
     	
     	int num_atoms = ED_atoms.size();
     	
-    	ArrayList<OntologyPredicateAtom> B = new ArrayList<>();
+    	ArrayList<OntologyPredicateAtom> QDiff = new ArrayList<>();
     	
     	for (int i = 0; i < num_atoms; i++) {
     		if (!I.contains(i)) {
     			// I contains only the indexes of the atoms for which
     			// we found at least one homo
-    			B.add(ED_atoms.get(i));
+    			QDiff.add(ED_atoms.get(i));
     		}
     	}
     	
     	for (int i = 0; i < l; i++) {
     		if (A.get(i) == 0) {
-    			B.add(ED_atoms.get(I.get(i)));
+    			QDiff.add(ED_atoms.get(I.get(i)));
     		}
     	}
     	
@@ -544,9 +635,6 @@ public class CQCensor {
     			sigma.add(H.get(i).get(A.get(i)-1));	// H[1][A[1] \cup ... \cup H[l]A[l]
     		}
     	}
-    	
-    	System.out.println("*** Printing B ***");
-    	System.out.println(B);
     	
     	/*
     	 * CHECK ADIMISSIBILITY
@@ -577,10 +665,9 @@ public class CQCensor {
     			// Check the second condition
     			if (entry.getValue() instanceof Variable) {
     				Variable v = (Variable) entry.getKey();
-    				for (OntologyPredicateAtom oa: B) {
+    				for (OntologyPredicateAtom oa: QDiff) {
     					if (oa.getFreeVariables().contains(v)) {
     						// Condition 2 is not satisfied
-    						System.out.println("Condition 2 is not sat");
     						adm = false;
     						break;
     						
@@ -612,9 +699,9 @@ public class CQCensor {
     			@SuppressWarnings("unchecked")
 				ArrayList<Integer> A1 = (ArrayList<Integer>) A.clone();
     			A1.set(i, 0);
-    			System.out.println("Enetering");
+    		
     			if ((int) M.get(A1) != 0) {
-    				System.out.println("Recursively calling CheckClash");
+    				
     				M = CheckClash(ED_atoms, H, A1, M, l, I);
     			}
     		}
