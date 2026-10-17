@@ -61,7 +61,7 @@ public class CQCensor {
             Logger.info("ACYCLIC POLICY OF SIZE: " + policy.size());
         }
         else {
-            Logger.info("POLICY NOT ACYCLIC, EXITING ..."); // Maybe should raise an ERROR
+            Logger.error("POLICY NOT ACYCLIC, EXITING ..."); // Maybe should raise an ERROR
         }
         System.out.println("Maybe even here here");
         */
@@ -93,10 +93,11 @@ public class CQCensor {
         */
     	
     	
-        // Map<String, List<Tuple>> atoms = new HashMap<>();
     	Set<PredicateAtom> atoms = new HashSet<>();
         String membership_assertion = "rdf:type";
         String membership_assertion_shorten = "a";
+        
+        // Regex matching a Basic Graph Pattern (BGP) in a sparql query
 
         String BGP_regex = "(\\?\\w+|\\w+)\\s+(:?\\w+|rdf:type|a)\\s+(\\?\\w+|:?\\w+)\\s*\\.";
 
@@ -149,9 +150,6 @@ public class CQCensor {
                     }
             		
             	}
-
-                //Tuple tuple = new Tuple(t1);
-                //atoms.computeIfAbsent(t3, k -> new ArrayList<>()).add(tuple);
              
             }
             else {
@@ -194,7 +192,7 @@ public class CQCensor {
                     	atoms.add(atom);
                     	
                     } catch(DatatypeNoMatchException e) {
-                    	System.out.println("Type mismatch");
+                    	System.out.println("Type mismatch: SPARQL query is malformed!");
                     }
             		
             	}
@@ -217,7 +215,7 @@ public class CQCensor {
                     	atoms.add(atom);
                     	
                     } catch(DatatypeNoMatchException e) {
-                    	System.out.println("Type mismatch");
+                    	System.out.println("Type mismatch: SPARQL query is malformed!");
                     }
             		
             	}
@@ -240,7 +238,7 @@ public class CQCensor {
             			atoms.add(atom);
             			
             		} catch(DatatypeNoMatchException e) {
-            			System.out.println("Type mismatch");
+            			System.out.println("Type mismatch: SPARQL query is malformed!");
             		}
             		
             	}
@@ -249,7 +247,7 @@ public class CQCensor {
 
         }
 
-        if (!found) System.out.println("No match found!");
+        if (!found) System.out.println("The SPARQL query did not match with a BGP, probably it is maformed!");
         
         return atoms;
            
@@ -271,10 +269,16 @@ public class CQCensor {
     public Result compute_homomorphisms(ArrayList<OntologyPredicateAtom> body_atoms, Set<PredicateAtom> query_atoms, List<Variable> universally_quantified_vars) {
     	ArrayList<ArrayList<HashMap<Term, Term>>> H = new ArrayList<ArrayList<HashMap<Term, Term>>>();
     	
-    	/*
-    	 * indexes: an ArrayList to keep track of the indexes in body_atoms. 
-    	 * We will use it to keep track of the atoms that we are considering for a given combination of homomorphism, 
-    	 * precisely we store it's position (index) in the body of delta
+    	/* INPUT:
+    	 * 	body_atoms: List of atoms occurring in the body of the considered epistemic dependency
+    	 * 	query_atoms: atoms occurring in the query
+    	 * 	universally_quantified_vars: universally quantified variables in the epistemic dependency
+    	 * 	
+    	 * OUTPUT:
+    	 * 	indexes: an ArrayList to keep track of the indexes in body_atoms. 
+    	 * 		We will use it to keep track of the atoms that we are considering for a given combination of homomorphism, 
+    	 * 		precisely we store it's position (index) in the body of delta
+    	 * 	homomorphisms: the homomorphisms found for each atom in body delta
     	 */
     	ArrayList<Integer> indexes = new ArrayList<>(); 
     	
@@ -290,15 +294,17 @@ public class CQCensor {
     				Term q_t1 = q_a.getTerm(0);		// term 1 of the query's atom
 
     				
-    				if (universally_quantified_vars.stream().anyMatch(v -> v.getName().equals(((Variable) b_t1).getName())) && q_t1 instanceof Variable) {
+    				if (q_t1 instanceof Variable && universally_quantified_vars.stream().anyMatch(v -> v.getName().equals(((Variable) b_t1).getName()))) {
     				//if (universally_quantified_vars.contains(b_t1) && q_t1 instanceof Variable) {
     					// Can't map a free variable onto an existential variable
     					continue;
     				}
     				else if (b_t1 instanceof DataConstant && !(q_t1 instanceof DataConstant)) {
+    					// a homomorphisms preservers the constants
     					continue;
     				}
     				else if (b_t1 instanceof DataConstant && q_t1 instanceof DataConstant && !(b_t1.equals(q_t1))) { 
+    					// again a homomorphisms preserves the constants; a constant can be mapped only to itself
     					continue;
     				}
     				else {
@@ -353,7 +359,6 @@ public class CQCensor {
     */
     
     // Maybe: public Set<ConjunctiveQuery>
-    @SuppressWarnings("unchecked")
 	public Set<OntologyConjunctiveQuery> ComputeClashQueries(Set<EpistemicDependency> policy) throws IOException{
         
         Set<OntologyConjunctiveQuery> Q = new HashSet<>();
@@ -362,26 +367,29 @@ public class CQCensor {
         String sparql_query = "";
         try {
             sparql_query = Files.readString(Path.of(queryFilePath));
+            Logger.info("Read SARQL_query: \n" + sparql_query);
+            
             
         } catch(IOException e) {
-            System.out.println("File not found! " + e.getMessage());
+        	Logger.error("Query not found: " + e.getMessage());
         }
         
         // Retrieve the set of Atoms in the sparql query
         Set<PredicateAtom> sparql_query_atoms = SPARQL_parser(sparql_query);
-        System.out.println("*** SPARQL query atoms ***");
-        System.out.println(sparql_query_atoms);
+        Logger.info("Parsed sparql_query, found atoms: " + sparql_query_atoms);
         
         for (EpistemicDependency ed: policy) {
         	OntologyConjunctiveQuery body = ed.getBody();
         	
-        	System.out.println("*** ED body ***");
-        	System.out.println(body);
+        	Logger.info("ED body: " + body);
+        	
+        	//System.out.println("*** ED body ***");
+        	//System.out.println(body);
         	
         	
         	ArrayList<Variable> universally_quantified_vars = ed.getUniversallyQuantifiedVariables();
-        	System.out.println("*** Free variables ***");
-        	System.out.println(universally_quantified_vars);
+        	//System.out.println("*** Free variables ***");
+        	//System.out.println(universally_quantified_vars);
         	
         	Set<OntologyPredicateAtom> atoms = body.getAllPredicateAtoms();
         	// We store everything in an ArrayList, since we'll need to preserve the order
@@ -396,17 +404,12 @@ public class CQCensor {
         	
         	ArrayList<ArrayList<HashMap<Term, Term>>> homomorphisms = ris.homomorphisms;
         	ArrayList<Integer> indexes = ris.indexes;
-        	System.out.println("*** Indexes ***");
-        	System.out.println(indexes);
         	
-        	System.out.println("***** Printing Homomorphisms ******");
         	
-        	for (ArrayList<HashMap<Term,Term>> a: homomorphisms) {
-        		System.out.println(a);
-        	}
+        	Logger.info("Found homomoprhisms: " + homomorphisms);
         	
         	int l = homomorphisms.size();
-        	if (l == 0) continue; // No homomorphisms for this delta
+        	if (l == 0) continue; // No homomorphisms for this epistemic dependency
         	
         	// We compute K, an array storing the counter of the number of homomorphisms 
         	// found for each atom (except those for which the count is zero.
@@ -415,8 +418,7 @@ public class CQCensor {
         	for (ArrayList<HashMap<Term, Term>> a: homomorphisms) {
         		K.add(a.size());
         	}
-        	System.out.println("*** Printing K ***");
-        	System.out.println(K);
+        	
         	
         	// Initialization of the matrix (or hashmap) M 
         	
@@ -426,14 +428,6 @@ public class CQCensor {
         	}
         	HashMap<ArrayList<Integer>, Integer> M = initialize_map(A, K, l);
         	
-        	
-        	System.out.println("*** HashMap M ***");
-        	for (var entry : M.entrySet()) {
-                ArrayList<Integer> keyStr = entry.getKey();
-                Integer value = entry.getValue();
-                System.out.print(keyStr + ":" + value + "  ");
-            }
-        	System.out.println();
         	
         	
         	/*
@@ -446,27 +440,24 @@ public class CQCensor {
         		A_init.add(1); 
         	}
         	
-        	ArrayList<Integer> A1 = (ArrayList<Integer>) A_init.clone();
+        	ArrayList<Integer> A1 = new ArrayList<>(A_init);
         	ArrayList<Integer> A2 = new ArrayList<>();
         	
         	
         	do {
 	        	M = CheckClash(ED_atoms, homomorphisms, A1, M, l, indexes);
-	        	A2 = (ArrayList<Integer>) A1.clone(); 
-	        	A1 = Increment_all_non_zeros(A1, K);
+	        	A2 = new ArrayList<>(A1); 
+	        	A1 = Increment_all_non_zeros(A1, K);  	
         	} while (!A1.equals(A2));
         	
         	
-        	System.out.println("*** HashMap M after CHECK CLASH ***");
-        	for (var entry : M.entrySet()) {
-                ArrayList<Integer> keyStr = entry.getKey();
-                Integer value = entry.getValue();
-                System.out.print(keyStr + ":" + value + "  ");
-            }
-        	System.out.println();
+        	
+        	Logger.info("Final state of M: " + M);
         	
         	
-        	// Generate Conjunctive Queries
+        	/*
+        	 * Generate the candidate clash queries
+        	 */
         	
         	int num_atoms = ED_atoms.size();
         	
@@ -502,15 +493,15 @@ public class CQCensor {
                 	
                 	HashSet<PredicateAtom> cq_atoms = new HashSet<>();
                 	
-                	System.out.println("*** QDiff ***");
-                	System.out.println(QDiff);
+                	//System.out.println("*** QDiff ***");
+                	//System.out.println(QDiff);
                 	
                 	List<Variable> free_vars = new ArrayList<>(ed.getUniversallyQuantifiedVariables()); // Need them to build the Conjunctive Query
                 	
                 	// For each atom not mapped by the current choice of homomorphisms,
                 	// we see if we can apply h to some of its terms.
                 	for (OntologyPredicateAtom a: QDiff) {
-                		System.out.println("Atom: " + a);
+                		//System.out.println("Atom: " + a);
                 		//ArrayList<Term> terms = new ArrayList<>(); 
                 		ArrayList<Term> atom_terms = new ArrayList<>(a.getTerms());		// get the atom terms. We keep track of them in case they are not mapped by the homomorphism
                 		
@@ -526,7 +517,7 @@ public class CQCensor {
                 							Variable x = new Variable(((Variable) t).getName());
                 							x.unbind();
                 							if (free_vars.contains(x)) {
-	                							System.out.println("*** Removing the free variable: " + t);
+	                							//System.out.println("*** Removing the free variable: " + t);
 	                							free_vars.remove(x);
                 							}
                 						}
@@ -543,13 +534,14 @@ public class CQCensor {
                 	}
                 	
                 	try {
-                		System.out.println("Free vars: " + free_vars);
+                		//System.out.println("Free vars: " + free_vars);
 						OntologyConjunctiveQuery cq = new OntologyConjunctiveQuery(cq_atoms, free_vars);
+						Logger.info("Adding candidate clash query: " + cq);
 						Q.add(cq);
-						System.out.println("Candidate clash query: " + cq);
+						//System.out.println("Candidate clash query: " + cq);
 					} catch (TermTypeException e) {
-						// TODO Auto-generated catch block
-						e.printStackTrace();
+						Logger.error("Term Type Error" + e.getMessage());
+						//e.printStackTrace();
 					}
                 	
             		
@@ -558,10 +550,7 @@ public class CQCensor {
         
         }
         
-        System.out.println("*** Printing the Candidate clash queries ***");
-        for (OntologyConjunctiveQuery ocq: Q) {
-        	System.out.println(ocq);
-        }
+        Logger.info("Candidate Clash Queries: \n" + Q);
         
         return Q;
         
@@ -580,7 +569,7 @@ public class CQCensor {
     	
     	M.put(A, 0); // M[0,...,0] = 0 since it corresponds to the body
     	
-    	ArrayList<Integer> A1 = (ArrayList<Integer>) A.clone();
+    	ArrayList<Integer> A1 = new ArrayList<>(A); 
     	ArrayList<Integer> A2 = new ArrayList<>();
     	
     	// Initialize A2 with -1s
@@ -589,7 +578,7 @@ public class CQCensor {
     	}
     	
     	while (!A1.equals(A2)) {
-    		A2 = (ArrayList<Integer>) A1.clone();
+    		A2 = new ArrayList<>(A1);
     		A1 = Increment_all(A1, K);
     		M.putIfAbsent(A1, 1);
     	}
@@ -608,7 +597,9 @@ public class CQCensor {
     	 * I: indexes
     	 */
     	
+    	
     	ArrayList<HashMap<Term, Term>> sigma = new ArrayList<HashMap<Term, Term>>();
+    	
     	
     	// Initialize the array QDiff containing the atoms not mapped by H
     	
@@ -635,6 +626,7 @@ public class CQCensor {
     			sigma.add(H.get(i).get(A.get(i)-1));	// H[1][A[1] \cup ... \cup H[l]A[l]
     		}
     	}
+    	//Logger.info("Sigma: " + sigma);
     	
     	/*
     	 * CHECK ADIMISSIBILITY
@@ -696,8 +688,7 @@ public class CQCensor {
     	
     	for (int i = 0; i < l; i++) {
     		if (A.get(i) != 0) {
-    			@SuppressWarnings("unchecked")
-				ArrayList<Integer> A1 = (ArrayList<Integer>) A.clone();
+				ArrayList<Integer> A1 = new ArrayList<>(A);
     			A1.set(i, 0);
     		
     			if ((int) M.get(A1) != 0) {
@@ -709,13 +700,31 @@ public class CQCensor {
     	
  
     	
-    	System.out.println("*** Printing SIGMA ***");
-    	System.out.println(sigma);
+    	//System.out.println("*** Printing SIGMA ***");
+    	//System.out.println(sigma);
     	
     	
     	return M;
     	
     }
+    
+    
+    private HashMap<ArrayList<Integer>, Integer> SkipSubsets(ArrayList<Integer> A, HashMap<ArrayList<Integer>, Integer> M, int l) {
+    	for (int i = 0; i < l; i++) {
+    		if (A.get(i) != 0) {
+    			ArrayList<Integer> A1 = new ArrayList<>(A);
+    			A1.set(i, 0);
+    			M.replace(A1, 0);
+    			M = SkipSubsets(A1, M, l);
+    		}
+    	}
+    	
+    	return M;
+    	
+    }
+    
+    
+    
     
     
     
