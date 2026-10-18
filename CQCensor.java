@@ -493,8 +493,6 @@ public class CQCensor {
                 	
                 	HashSet<PredicateAtom> cq_atoms = new HashSet<>();
                 	
-                	//System.out.println("*** QDiff ***");
-                	//System.out.println(QDiff);
                 	
                 	List<Variable> free_vars = new ArrayList<>(ed.getUniversallyQuantifiedVariables()); // Need them to build the Conjunctive Query
                 	
@@ -534,11 +532,11 @@ public class CQCensor {
                 	}
                 	
                 	try {
-                		//System.out.println("Free vars: " + free_vars);
+                		
 						OntologyConjunctiveQuery cq = new OntologyConjunctiveQuery(cq_atoms, free_vars);
 						Logger.info("Adding candidate clash query: " + cq);
 						Q.add(cq);
-						//System.out.println("Candidate clash query: " + cq);
+						
 					} catch (TermTypeException e) {
 						Logger.error("Term Type Error" + e.getMessage());
 						//e.printStackTrace();
@@ -678,22 +676,31 @@ public class CQCensor {
     	
     	
     	/*
-    	 * OPTIMIZATION: If admissible but sigma does not assign any variable occurring in QDiff, then SkipSubsets
+    	 * OPTIMIZATION: If admissible and sigma does not assign any variable occurring in QDiff, then SkipSubsets
     	 */
     	
-    	boolean assigned = false;
-    	for (Term key: sigma.keySet()) {
-    		for (OntologyPredicateAtom oa: QDiff) {
-    			if (oa.hasVariable((Variable) key)) {
-    				assigned = true;
-    				break;
-    			}
-    		}
-    		
-    		if (assigned) {
-    			M = SkipSubsets(A, M, l);
-    			return M;
-    		}
+    	if (adm) {
+			boolean assigned = false;
+			for (Term key: sigma.keySet()) {
+				for (OntologyPredicateAtom oa: QDiff) {
+					if (oa.hasVariable((Variable) key)) {
+						//Logger.info("Found Assignment");
+						assigned = true;
+						break;
+					}
+				}
+				
+				if (assigned) {
+					break;
+				}
+			}
+			
+			if (!assigned) {
+				Logger.info("Calling SkipSubsets for choice A: " + A);
+				M = SkipSubsets(A, M, l);
+				return M;
+				
+			}
     	}
     	
     	
