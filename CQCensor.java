@@ -598,7 +598,8 @@ public class CQCensor {
     	 */
     	
     	
-    	ArrayList<HashMap<Term, Term>> sigma = new ArrayList<HashMap<Term, Term>>();
+    	//ArrayList<HashMap<Term, Term>> sigma = new ArrayList<HashMap<Term, Term>>();
+    	HashMap<Term, Term> sigma = new HashMap<>();
     	
     	
     	// Initialize the array QDiff containing the atoms not mapped by H
@@ -621,12 +622,6 @@ public class CQCensor {
     		}
     	}
     	
-    	for (int i = 0; i < l; i++) {
-    		if (A.get(i) > 0) {
-    			sigma.add(H.get(i).get(A.get(i)-1));	// H[1][A[1] \cup ... \cup H[l]A[l]
-    		}
-    	}
-    	//Logger.info("Sigma: " + sigma);
     	
     	/*
     	 * CHECK ADIMISSIBILITY
@@ -638,28 +633,14 @@ public class CQCensor {
     	
     	boolean adm = true;
     	
-    	for (HashMap<Term, Term> h1: sigma) {
-    		for (var entry: h1.entrySet()) {
-    			for (HashMap<Term, Term> h2: sigma) {
-    				if (!h1.equals(h2)) {
-    					for (var entry2: h2.entrySet()) {
-    						if (entry.getKey().equals(entry2.getKey()) && !entry.getValue().equals(entry2.getValue())) { 
-    							// This is not even a homomorphism, the same variable is mapped to two different values
-    							adm = false;
-    							break;
-    						}
-    					}
-    				}
-    				if (!adm) break;
-    			}
-    			if (!adm) break;
-    			
-    			// Check the second condition
-    			if (entry.getValue() instanceof Variable) {
-    				Variable v = (Variable) entry.getKey();
-    				for (OntologyPredicateAtom oa: QDiff) {
-    					if (oa.getFreeVariables().contains(v)) {
-    						// Condition 2 is not satisfied
+    	for (int i = 0; i < l; i++) {
+    		if (A.get(i) > 0) {
+    			for (var entry: H.get(i).get(A.get(i)-1).entrySet()) {
+    				if (!(sigma.putIfAbsent(entry.getKey(), entry.getValue()) == null)) {
+    					// if putIfAbsent does not return null then the key was already present
+    					if (!(entry.getValue().equals(sigma.get(entry.getKey())))) {
+    						// Trying to map a variable to two different values, this is not even a homomorphism !!
+    						// Fist condition of admissibility not satisfied
     						adm = false;
     						break;
     						
@@ -667,12 +648,55 @@ public class CQCensor {
     				}
     				
     			}
+    			
     		}
-    		if (!adm) {
-    			M.replace(A, 0);	// Set the entry M[A] = 0;
-    			break;
+    		if (!adm) break;
+    	}
+    	
+    	
+    	if (adm) {
+	    	for (var map: sigma.entrySet()) {
+	    		// Need to check second condition
+	    		if (map.getValue() instanceof Variable) {
+	    			Variable v = (Variable) map.getKey();
+	    			for (OntologyPredicateAtom oa: QDiff) {
+	    				if (oa.getFreeVariables().contains(v)) {
+	    					adm = false; 
+	    					break;
+	    				}
+	    			}
+	    		}
+	    		if (!adm) break;
+	    		
+	    	}
+    	}
+    	
+    	
+    	if (!adm) {
+    		M.replace(A, 0);	// Set the entry M[A] = 0;
+    	}
+    	
+    	
+    	/*
+    	 * OPTIMIZATION: If admissible but sigma does not assign any variable occurring in QDiff, then SkipSubsets
+    	 */
+    	
+    	boolean assigned = false;
+    	for (Term key: sigma.keySet()) {
+    		for (OntologyPredicateAtom oa: QDiff) {
+    			if (oa.hasVariable((Variable) key)) {
+    				assigned = true;
+    				break;
+    			}
+    		}
+    		
+    		if (assigned) {
+    			M = SkipSubsets(A, M, l);
+    			return M;
     		}
     	}
+    	
+    	
     	
     	int counter = 0;
     	for (int i = 0; i < l; i++) {
@@ -682,10 +706,14 @@ public class CQCensor {
     		}
     	}
     	
+ 
     	if (counter < 2) {
+    		// Nothing to explore, return
     		return M;
     	}
     	
+    	
+    	// Still subsets to explore
     	for (int i = 0; i < l; i++) {
     		if (A.get(i) != 0) {
 				ArrayList<Integer> A1 = new ArrayList<>(A);
@@ -697,11 +725,6 @@ public class CQCensor {
     			}
     		}
     	}
-    	
- 
-    	
-    	//System.out.println("*** Printing SIGMA ***");
-    	//System.out.println(sigma);
     	
     	
     	return M;
@@ -722,10 +745,6 @@ public class CQCensor {
     	return M;
     	
     }
-    
-    
-    
-    
     
     
 }
