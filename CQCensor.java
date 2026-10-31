@@ -24,6 +24,7 @@ import static cqcensors.QueryChecker.loadEDPolicyFromJson;
 import static cqcensors.util.OntologyUtils.loadOntology;
 import static cqcensors.Increment.Increment_all;
 import static cqcensors.Increment.Increment_all_non_zeros;
+import static cqcensors.SPARQLParser.SPARQL_parser;
 //import static cqcensors.Increment.printArray;
 
 /**
@@ -48,13 +49,12 @@ public class CQCensor {
         policy = loadEDPolicyFromJson(config.prependInputPath(config.policyFilename), 
                 config.prependInputPath(config.ontologyFilename));
         
+        Logger.info("Policy P: " + policy);
         
-        ComputeClashQueries(policy);
-        
-        /*
         // Load OWL ontology
-        tbox = loadOntology(config.prependInputPath(config.ontologyFilename));  → HERE it breaks
-        System.out.println("I'm also here");
+        tbox = loadOntology(config.prependInputPath(config.ontologyFilename)); 
+        
+        Logger.info("TBox T: " + tbox);
         
         // Check policy's acyclicity w.r.t. the TBox
         if (isAcyclicPolicy(policy, tbox)) {
@@ -63,8 +63,8 @@ public class CQCensor {
         else {
             Logger.error("POLICY NOT ACYCLIC, EXITING ..."); // Maybe should raise an ERROR
         }
-        System.out.println("Maybe even here here");
-        */
+        
+        ComputeClashQueries(policy);
         
     }
     
@@ -73,185 +73,6 @@ public class CQCensor {
         return dg.isPolicyAcyclic();
     }
    
-    
-    private Set<PredicateAtom> SPARQL_parser(String sparql) {
-    	
-        /*
-            SPARQL parser 
-            Takes in input a SPARQL query and returns its set of atoms. 
-            Example.
-            Given:
-                SELECT ?x ?y
-                WHERE {
-                    ?x :R ?y .
-                    ?y rdf:type Professor .
-                    ?y a Person .
-                }
-            
-            Returns: R(x,y), Professor(y), Person(y)
-         
-        */
-    	
-    	
-    	Set<PredicateAtom> atoms = new HashSet<>();
-        String membership_assertion = "rdf:type";
-        String membership_assertion_shorten = "a";
-        
-        // Regex matching a Basic Graph Pattern (BGP) in a sparql query
-
-        String BGP_regex = "(\\?\\w+|\\w+)\\s+(:?\\w+|rdf:type|a)\\s+(\\?\\w+|:?\\w+)\\s*\\.";
-
-        Pattern pattern = Pattern.compile(BGP_regex, Pattern.DOTALL);
-
-        Matcher matcher = pattern.matcher(sparql); 
-
-        boolean found = false; 
-
-        while (matcher.find()) {
-            found = true;
-            
-            List<Term> terms = new ArrayList<>();
-
-            String t1 = matcher.group(1); 
-            String t2 = matcher.group(2); 
-            String t3 = matcher.group(3);
-
-            if (t2.equals(membership_assertion) || t2.equals(membership_assertion_shorten)) {
-            	
-            	// ?x a Person . , John rdf:type Person .
-            	
-            	if (t1.startsWith("?")) { // then t1 is a variable
-            		
-            		// Remove non alphanumeric characters in order to store just R(x,y) and not :R(?x, ?y)
-                    t1 = t1.replaceAll("[^a-zA-Z0-9]", "");
-                    t3 = t3.replaceAll("[^a-zA-Z0-9]", "");
-                    
-                    Variable v = new Variable(t1); 
-                    terms.add(v);
-                    
-                    PredicateAtom atom = new PredicateAtom(t3, terms);
-                    atoms.add(atom);
-            		
-            	}
-            	
-            	else { // t1 is a constant
-            		
-            		t1 = t1.replaceAll("[^a-zA-Z0-9]", "");
-                    t3 = t3.replaceAll("[^a-zA-Z0-9]", "");
-                    
-                    try {
-                    	DataConstant constant = new DataConstant(t1);
-                    	terms.add(constant);
-                    	PredicateAtom atom = new PredicateAtom(t3, terms);
-                    	atoms.add(atom);
-                    	
-                    }catch (DatatypeNoMatchException e) {
-                    	System.out.println("Type mismatch");
-                    }
-            		
-            	}
-             
-            }
-            else {
-            	
-            	if (t1.startsWith("?") && t3.startsWith("?")) {
-            		// Both t1 and t2 are variables
-            		
-            		// Clean the strings
-            		t1 = t1.replaceAll("[^a-zA-Z0-9]", "");
-                    t2 = t2.replaceAll("[^a-zA-Z0-9]", "");
-                    t3 = t3.replaceAll("[^a-zA-Z0-9]", "");
-                    
-                    Variable v1 = new Variable(t1); 
-                    Variable v2 = new Variable(t3); 
-                    
-                    terms.add(v1); 
-                    terms.add(v2);
-                    
-                    PredicateAtom atom = new PredicateAtom(t2, terms);
-                    atoms.add(atom);
-            		
-            	}
-            	
-            	else if (t1.startsWith("?") && !t3.startsWith("?")) {
-            		// t1 is a variable and t3 is a constant
-            		
-            		// Clean the strings
-            		t1 = t1.replaceAll("[^a-zA-Z0-9]", "");
-                    t2 = t2.replaceAll("[^a-zA-Z0-9]", "");
-                    t3 = t3.replaceAll("[^a-zA-Z0-9]", "");
-                    
-                    Variable v1 = new Variable(t1); 
-                    
-                    try {
-                    	DataConstant constant = new DataConstant(t3);
-                    	terms.add(v1); 
-                    	terms.add(constant);
-                    	
-                    	PredicateAtom atom = new PredicateAtom(t2, terms);
-                    	atoms.add(atom);
-                    	
-                    } catch(DatatypeNoMatchException e) {
-                    	System.out.println("Type mismatch: SPARQL query is malformed!");
-                    }
-            		
-            	}
-            	
-            	else if (!t1.startsWith("?") && t3.startsWith("?")) {
-            		// t1 is a constant and t3 is a variable
-            		
-            		// Clean the strings
-            		t1 = t1.replaceAll("[^a-zA-Z0-9]", "");
-                    t2 = t2.replaceAll("[^a-zA-Z0-9]", "");
-                    t3 = t3.replaceAll("[^a-zA-Z0-9]", "");
-                    
-                    try {
-                    	DataConstant constant = new DataConstant(t1);
-                    	Variable v3 = new Variable(t3);
-                    	terms.add(constant);
-                    	terms.add(v3);
-                    	
-                    	PredicateAtom atom = new PredicateAtom(t2, terms);
-                    	atoms.add(atom);
-                    	
-                    } catch(DatatypeNoMatchException e) {
-                    	System.out.println("Type mismatch: SPARQL query is malformed!");
-                    }
-            		
-            	}
-            	
-            	else { // Both t1 and t3 are constants
-            		
-            		// Clean the strings
-            		t1 = t1.replaceAll("[^a-zA-Z0-9]", "");
-                    t2 = t2.replaceAll("[^a-zA-Z0-9]", "");
-                    t3 = t3.replaceAll("[^a-zA-Z0-9]", "");
-            		
-            		try {
-            			DataConstant c1 = new DataConstant(t1);
-            			DataConstant c2 = new DataConstant(t3);
-            			
-            			terms.add(c1); 
-            			terms.add(c2);
-            			
-            			PredicateAtom atom = new PredicateAtom(t2, terms); 
-            			atoms.add(atom);
-            			
-            		} catch(DatatypeNoMatchException e) {
-            			System.out.println("Type mismatch: SPARQL query is malformed!");
-            		}
-            		
-            	}
-
-            }
-
-        }
-
-        if (!found) System.out.println("The SPARQL query did not match with a BGP, probably it is maformed!");
-        
-        return atoms;
-           
-    }
     
     
     private static class Result {
@@ -337,7 +158,6 @@ public class CQCensor {
     		if (!homomorphisms.isEmpty()) {
     			H.add(homomorphisms);
     			indexes.add(index);
-    			//System.out.println("Index: " + index);
     		}
     		index += 1;
     			
@@ -382,14 +202,10 @@ public class CQCensor {
         	OntologyConjunctiveQuery body = ed.getBody();
         	
         	Logger.info("ED body: " + body);
-        	
-        	//System.out.println("*** ED body ***");
-        	//System.out.println(body);
-        	
+ 
         	
         	ArrayList<Variable> universally_quantified_vars = ed.getUniversallyQuantifiedVariables();
-        	//System.out.println("*** Free variables ***");
-        	//System.out.println(universally_quantified_vars);
+        
         	
         	Set<OntologyPredicateAtom> atoms = body.getAllPredicateAtoms();
         	// We store everything in an ArrayList, since we'll need to preserve the order
@@ -472,7 +288,7 @@ public class CQCensor {
             		for (int i = 0; i < num_atoms; i++) {
                 		if (!indexes.contains(i)) {
                 			// I contains only the indexes of the atoms for which
-                			// we found at least one homo
+                			// we found at least one homomorphism
                 			QDiff.add(ED_atoms.get(i));
                 		}
                 	}
@@ -499,9 +315,8 @@ public class CQCensor {
                 	// For each atom not mapped by the current choice of homomorphisms,
                 	// we see if we can apply h to some of its terms.
                 	for (OntologyPredicateAtom a: QDiff) {
-                		//System.out.println("Atom: " + a);
-                		//ArrayList<Term> terms = new ArrayList<>(); 
-                		ArrayList<Term> atom_terms = new ArrayList<>(a.getTerms());		// get the atom terms. We keep track of them in case they are not mapped by the homomorphism
+                		
+                		ArrayList<Term> atom_terms = new ArrayList<>(a.getTerms());		// get the original terms; then we will replace them in case they are mapped by h
                 		
                 		for (HashMap<Term,Term> h: sigma) {
                 			for (var e: h.entrySet()) {
@@ -509,13 +324,11 @@ public class CQCensor {
                 				for (Term t: a.getTerms()) {
                 					
                 					if (t.equals(e.getKey())) {
-                						//terms.add(e.getValue());
                 						atom_terms.set(i, e.getValue());	// replace the term with the one mapped by the homomorphism
                 						if (t instanceof Variable) {
                 							Variable x = new Variable(((Variable) t).getName());
                 							x.unbind();
                 							if (free_vars.contains(x)) {
-	                							//System.out.println("*** Removing the free variable: " + t);
 	                							free_vars.remove(x);
                 							}
                 						}
