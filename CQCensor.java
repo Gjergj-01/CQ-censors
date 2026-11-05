@@ -9,37 +9,39 @@ import cqcensors.policy.EpistemicDependency;
 import cqcensors.policy.DependencyGraph;
 import cqcensors.policy.OntologyConjunctiveQuery;
 import cqcensors.parser.ParserException;
-import cqcensors.fol.DataConstant.DatatypeNoMatchException;
 import cqcensors.fol.Term.TermTypeException;
+import java.net.URISyntaxException;
 
 import org.semanticweb.owlapi.model.*;
 import java.util.*;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.regex.Pattern;
-import java.util.regex.Matcher; 
+
 
 import static cqcensors.QueryChecker.loadEDPolicyFromJson;
+import static cqcensors.QueryChecker.rewriteEDPolicyWrtTbox;
 import static cqcensors.util.OntologyUtils.loadOntology;
 import static cqcensors.Increment.Increment_all;
 import static cqcensors.Increment.Increment_all_non_zeros;
 import static cqcensors.SPARQLParser.SPARQL_parser;
-//import static cqcensors.Increment.printArray;
+import static cqcensors.policy.EpistemicDependency.IND_AUX_PRED_NAME;
+import static cqcensors.fol.MostGeneralUnifier.findMGU;
 
-/**
- *
- * @author gjergj
- */
+
+
+
 public class CQCensor {
     
     Configuration configuration; 
     String queryFilePath; 
     static OWLOntology tbox; 
     static Set<EpistemicDependency> policy; 
+    static Set<EpistemicDependency> policyExpWrtTBox;	// ← policy expanded w.r.t. the TBox
+    static Set<EpistemicDependency> policyExp; 			// ← policy expanded w.r.t. TBox and itself
     private static String ONTOLOGY_IRI;
     
-    public CQCensor(Configuration config) throws OWLOntologyCreationException, ParserException, Term.TermTypeException, IOException {
+    public CQCensor(Configuration config) throws OWLOntologyCreationException, ParserException, Term.TermTypeException, IOException, PredicateAtom.PredicateArityException, URISyntaxException {
         configuration = config; 
         queryFilePath = config.prependInputPath(config.queryFilename);
         
@@ -50,6 +52,7 @@ public class CQCensor {
                 config.prependInputPath(config.ontologyFilename));
         
         Logger.info("Policy P: " + policy);
+        
         
         // Load OWL ontology
         tbox = loadOntology(config.prependInputPath(config.ontologyFilename)); 
@@ -64,9 +67,147 @@ public class CQCensor {
             Logger.error("POLICY NOT ACYCLIC, EXITING ..."); // Maybe should raise an ERROR
         }
         
-        ComputeClashQueries(policy);
+        /*
+         * POLICY EXPANSION
+         */
+        
+        System.out.println("Expanding policy w.r.t. TBox");
+        policyExpWrtTBox = rewriteEDPolicyWrtTbox(policy, tbox);
+        // Logger.info("Policy Expanded w.r.t. TBox: " + expandedwrtTBox);
+        for (EpistemicDependency ed: policyExpWrtTBox) {
+        	System.out.println(ed);
+        }
+        
+        System.out.println("Expanding policy w.r.t. TBOX and itself");
+        policyExp = expandAcyclicPolicy(policy, tbox);
+        
+        for (EpistemicDependency ed: policyExp) {
+        	System.out.println(ed);
+        }
+        
+        System.out.println("\n");
+        
+        CompleteCons(policyExp);
+        
+        //ComputeClashQueries(policyExp);
         
     }
+    
+    
+    private HashSet<EpistemicDependency> expandAcyclicPolicy(Set<EpistemicDependency> policy, OWLOntology ontology) throws Term.TermTypeException, PredicateAtom.PredicateArityException, URISyntaxException {
+    	Logger.info("ACYCLIC EXPANSION"); 
+    	/*
+    	 * We proceed in two steps:
+    	 * 		1. Expand P w.r.t. T and get P'
+    	 * 		2. Expand P' w.r.t. itself
+    	 */
+    	
+    	// STEP 1
+    	
+    	Set<EpistemicDependency> tgdPolicySet = new HashSet<>();
+    	for (EpistemicDependency ed: policy) {
+    		tgdPolicySet.add(ed.createCorrespondingTGD(ONTOLOGY_IRI));
+    	}
+    	
+    	Set<EpistemicDependency> intermediatePolicySet = rewriteEDPolicyWrtTbox(tgdPolicySet, ontology);
+    	Set<EpistemicDependency> intermediatePolicySetWithoutInd = new HashSet<>();
+        for (EpistemicDependency ed : intermediatePolicySet){
+            intermediatePolicySetWithoutInd.add(ed.removePredicateFromBody(IND_AUX_PRED_NAME));
+        }
+    	
+        
+        // STEP 2
+        return rewriteEDPolicyWrtItself(intermediatePolicySetWithoutInd);
+    
+    }
+    
+    private HashSet<EpistemicDependency> rewriteEDPolicyWrtItself(Set<EpistemicDependency> policy) throws Term.TermTypeException, PredicateAtom.PredicateArityException, URISyntaxException {
+        HashSet<EpistemicDependency> res = new HashSet<>(policy);
+        int oldsize = res.size();
+        int newsize = oldsize+1;
+        while(newsize > oldsize){
+            res = expansionRound(res);
+            oldsize = newsize;
+            newsize = res.size();
+        }
+        return res;
+    }
+
+    private HashSet<EpistemicDependency> expansionRound(HashSet<EpistemicDependency> policy) throws Term.TermTypeException, PredicateAtom.PredicateArityException, URISyntaxException {
+        // ArrayList<EpistemicDependency> res = new ArrayList<>(policy);
+    	HashSet<EpistemicDependency> res = new HashSet<>(policy);
+        for (EpistemicDependency ed1Original : policy){
+            if (ed1Original.isDenial()) continue;
+            for (EpistemicDependency ed2Original : policy){
+                //Renaming to prevent undesired matchings
+                EpistemicDependency ed1 = ed1Original.changeAllVariablesNames("ed1");
+                EpistemicDependency ed2 = ed2Original.changeAllVariablesNames("ed2");
+                //Prepare the PredicateAtoms for attempting a macthing
+                Set<OntologyPredicateAtom> paSet2 = ed2.getBody().getOntologyPredicateAtoms();
+                PredicateAtom head1 = ed1.getHead().getPredicateAtoms().iterator().next();
+                head1.unbindVariables();
+                for (OntologyPredicateAtom pa2 : paSet2){
+                    //Look for a substitution that unifies a predicate atom of ed2 with the head of ed1
+                    pa2.unbindVariables();
+                    PredicateAtom[] arg = new PredicateAtom[2];
+                    arg[0] = head1;
+                    arg[1] = pa2;
+                    Substitution mgu = findMGU(arg);
+                    if (mgu != null){
+                        //Apply the unificator to both eds, so that variables are unified in body, head and UQVs
+                        EpistemicDependency ed1s = mgu.applyToED(ed1);
+                        EpistemicDependency ed2s = mgu.applyToED(ed2);
+                        OntologyPredicateAtom pa2s = mgu.applyToOntologyPredicateAtom(pa2);
+                        //Create the new ED -- newBody
+                        Set<OntologyPredicateAtom> newBodyAtomsTemp = ed2s.getBody().getOntologyPredicateAtoms();
+                        Set<OntologyPredicateAtom> newBodyAtoms = new HashSet<>();
+                        //The copy is necessary for HashSet.remove to work
+                        for (OntologyPredicateAtom opa : newBodyAtomsTemp) {
+                            opa.unbindVariables();
+                            if(!opa.equals(pa2s)) newBodyAtoms.add(opa);
+                        }
+                        Set<OntologyPredicateAtom> temp = ed1s.getBody().getOntologyPredicateAtoms();
+                        for(OntologyPredicateAtom opa : temp) opa.unbindVariables();
+                        newBodyAtoms.addAll(temp);
+                        //newHead
+                        Set<OntologyPredicateAtom> newHeadAtoms = ed2s.getHead().getOntologyPredicateAtoms();
+                        for(OntologyPredicateAtom opa : newHeadAtoms) opa.unbindVariables();
+                        //newUQV
+                        ArrayList<Variable> newUQV = ed2s.getUniversallyQuantifiedVariables();
+                        newUQV.addAll(ed1s.getUniversallyQuantifiedVariables());
+                        HashSet<Variable> tempSet = new HashSet<>(newUQV);
+                        newUQV = new ArrayList<>(tempSet);
+
+                        OntologyConjunctiveQuery newBody = new OntologyConjunctiveQuery(newBodyAtoms, newUQV);
+                        //Manage denials
+                        OntologyConjunctiveQuery newHead;
+                        if (newHeadAtoms.isEmpty()) {
+                            newHead = new OntologyConjunctiveQuery(new HashSet<>(Arrays.asList(new False())), newUQV);
+                        }
+                        else{
+                            newHead = new OntologyConjunctiveQuery(newHeadAtoms, newUQV);
+                        }
+
+                        EpistemicDependency newEDOriginal = new EpistemicDependency(newBody, newHead, newUQV);
+                        EpistemicDependency newED = newEDOriginal.changeAllVariablesNames(null); //restore nice names
+                        if (!containsED(res, newED)) res.add(newED);
+                        
+                    }
+                }
+            }
+        }
+        return res;
+    }
+
+    //Set containment using ED.isEquivalent instead of equals
+    private boolean containsED(HashSet<EpistemicDependency> policy, EpistemicDependency ed) {
+        for (EpistemicDependency p : policy){
+            if (p.isEquivalentTo(ed)) return true;
+        }
+        return false;
+    }
+    
+    
     
     private boolean isAcyclicPolicy(Set<EpistemicDependency> policy, OWLOntology tbox) throws IOException {
         DependencyGraph dg = new DependencyGraph(policy, tbox); 
@@ -566,5 +707,149 @@ public class CQCensor {
     	
     }
     
+    
+    /*
+     * 	POLICY CONSEQUENCES ALG
+     */
+    
+    // OntologyConjunctiveQuery
+    private void CompleteCons(Set<EpistemicDependency> policy) {	//	, OntologyConjunctiveQuery q, HashMap<Term, Term> sigma) {
+    	HashSet<OntologyConjunctiveQuery> C = new HashSet<>();
+    	
+    	/*
+    	do {
+    		HashSet<OntologyConjunctiveQuery> C_aux = new HashSet<>();
+    		
+    		for (EpistemicDependency ED: policy) {
+    			
+    		}
+    	}
+    	*/
+    	
+    	// parse the query
+        String sparql_query = "";
+        try {
+            sparql_query = Files.readString(Path.of(queryFilePath));
+            Logger.info("Read SARQL_query: \n" + sparql_query);
+            
+            
+        } catch(IOException e) {
+        	Logger.error("Query not found: " + e.getMessage());
+        }
+    	
+    	// Retrieve the set of Atoms in the sparql query
+        Set<PredicateAtom> sparql_query_atoms = SPARQL_parser(sparql_query);
+        Logger.info("Parsed sparql_query, found atoms: " + sparql_query_atoms);
+    	
+    	for (EpistemicDependency ed: policy) {
+    		OntologyConjunctiveQuery body = ed.getBody();
+    		
+    		Logger.info("ED body: " + body);
+    		
+    		ArrayList<Variable> universally_quantified_vars = ed.getUniversallyQuantifiedVariables();
+    		
+    		Set<OntologyPredicateAtom> atoms = body.getAllPredicateAtoms();
+        	// We store everything in an ArrayList, since we'll need to preserve the order
+        	ArrayList<OntologyPredicateAtom> ED_atoms = new ArrayList<>();
+        	for (OntologyPredicateAtom a: atoms) {
+        		ED_atoms.add(a);        	
+        	}
+        	
+        	ArrayList<HashMap<Term, Term>> simple_homos = simple_homomorphism(ED_atoms, sparql_query_atoms, universally_quantified_vars);
+        	
+        	Logger.info("Found simple homomorphisms" + simple_homos);
+    		
+    	}
+    	
+    	return;
+    }
+    
+    
+    private ArrayList<HashMap<Term, Term>> simple_homomorphism(ArrayList<OntologyPredicateAtom> body_atoms, Set<PredicateAtom> query_atoms, List<Variable> universally_quantified_vars) {
+    	/*
+    	 * INPUT:
+    	 * 		body_atoms: List of atoms occurring in the epistemic dependency
+    	 * 		query_atoms: atoms occurring in the query
+    	 * 
+    	 * OUTPUT:
+    	 * 		a simple homomorphism from body_atoms to query_atoms
+    	 */
+    	
+    	ArrayList<HashMap<Term, Term>> h = new ArrayList<>(); 
+    	
+    	Result res = compute_homomorphisms(body_atoms, query_atoms, universally_quantified_vars);
+    	
+    	ArrayList<ArrayList<HashMap<Term, Term>>> homomorphisms = res.homomorphisms;
+    	ArrayList<Integer> indexes = res.indexes;
+    	
+    	
+    	int l = homomorphisms.size();
+    	
+    	
+    	// A simple homomorphism maps all the atoms of the body. If some of 
+    	// these are not mapped, then we return the empty
+    	if (l < body_atoms.size())
+    		return h;
+    	
+    	if (l > 1) {
+    		// Initialize an array of l 1's
+    		ArrayList<Integer> A_init = new ArrayList<>(); 
+    		for (int i = 0; i < l; i++) {
+    			A_init.add(1);
+    		}
+    		
+    		// We compute K, an array storing the counter of the number of homomorphisms 
+        	// found for each atom
+        	ArrayList<Integer> K = new ArrayList<>();
+        	
+        	for (ArrayList<HashMap<Term, Term>> a: homomorphisms) {
+        		K.add(a.size());
+        	}
+        	
+        	ArrayList<Integer> A = new ArrayList<>(A_init);
+        	ArrayList<Integer> A_aux = new ArrayList<>();
+        	
+        	do {
+        	
+		    	// Compute the valid combinations of homomorphisms
+		    	HashMap<Term, Term> sigma = new HashMap<>();
+		    	
+		    	boolean valid = true;
+		    	
+		    	for (int i = 0; i < l; i++) {
+		    		for (var entry: homomorphisms.get(i).get(A.get(i)-1).entrySet()) {
+		    			if (!(sigma.putIfAbsent(entry.getKey(), entry.getValue()) == null)) {
+		    				// If putIfAbsent does not return null, then the key was already present
+		    				// In this case we need to check that we are not mapping the same variable to two different values
+		    				if (!(entry.getValue().equals(sigma.get(entry.getKey())))) {
+		    					// This is not a valid homomorphism
+		    					valid = false;
+		    					break;
+		    				}
+		    			}
+		    		}
+		    		if (!valid) break;
+		    	}
+		    	
+		    	if (valid) {
+		    		h.add(sigma);
+		    	}
+		    	
+		    	// Increment
+		    	A_aux = new ArrayList<>(A);
+		    	A = Increment_all_non_zeros(A, K);
+		    	
+        	} while(!A.equals(A_aux));
+		    	
+    		
+    	} else {
+
+    		h.add(homomorphisms.get(0).get(0));
+    	}
+    	
+    	return h;
+    	
+    	
+    }
     
 }
