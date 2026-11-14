@@ -2,8 +2,12 @@ package cqcensors;
 
 import cqcensors.fol.*;
 import cqcensors.fol.DataConstant.DatatypeNoMatchException;
+import cqcensors.fol.PredicateAtom.PredicateArityException;
+import cqcensors.fol.Term.TermTypeException;
+
 import java.util.regex.Pattern;
-import java.util.regex.Matcher; 
+import java.util.regex.Matcher;
+import java.net.URISyntaxException;
 import java.util.*;
 
 public class SPARQLParser {
@@ -32,9 +36,9 @@ public class SPARQLParser {
     private static final String BGP_regex = "(\\?\\w+|\\w+)\\s+(:?\\w+|rdf:type|a)\\s+(\\?\\w+|:?\\w+)\\s*\\.";  
     
 	
-	public static Set<PredicateAtom> SPARQL_parser(String sparql) {
+	public static Set<OntologyPredicateAtom> SPARQL_parser(String sparql) throws URISyntaxException, PredicateArityException, TermTypeException {
 		
-		Set<PredicateAtom> atoms = new HashSet<>();
+		Set<OntologyPredicateAtom> atoms = new HashSet<>();
 		
 		Pattern pattern = Pattern.compile(BGP_regex, Pattern.DOTALL);
 
@@ -64,7 +68,7 @@ public class SPARQLParser {
                     Variable v = new Variable(t1); 
                     terms.add(v);
                     
-                    PredicateAtom atom = new PredicateAtom(t3, terms);
+                    OntologyPredicateAtom atom = new OntologyPredicateAtom(t3, terms);
                     atoms.add(atom);
             		
             	}
@@ -77,7 +81,7 @@ public class SPARQLParser {
                     try {
                     	DataConstant constant = new DataConstant(t1);
                     	terms.add(constant);
-                    	PredicateAtom atom = new PredicateAtom(t3, terms);
+                    	OntologyPredicateAtom atom = new OntologyPredicateAtom(t3, terms);
                     	atoms.add(atom);
                     	
                     }catch (DatatypeNoMatchException e) {
@@ -103,7 +107,7 @@ public class SPARQLParser {
                     terms.add(v1); 
                     terms.add(v2);
                     
-                    PredicateAtom atom = new PredicateAtom(t2, terms);
+                    OntologyPredicateAtom atom = new OntologyPredicateAtom(t2, terms);
                     atoms.add(atom);
             		
             	}
@@ -123,7 +127,7 @@ public class SPARQLParser {
                     	terms.add(v1); 
                     	terms.add(constant);
                     	
-                    	PredicateAtom atom = new PredicateAtom(t2, terms);
+                    	OntologyPredicateAtom atom = new OntologyPredicateAtom(t2, terms);
                     	atoms.add(atom);
                     	
                     } catch(DatatypeNoMatchException e) {
@@ -146,7 +150,7 @@ public class SPARQLParser {
                     	terms.add(constant);
                     	terms.add(v3);
                     	
-                    	PredicateAtom atom = new PredicateAtom(t2, terms);
+                    	OntologyPredicateAtom atom = new OntologyPredicateAtom(t2, terms);
                     	atoms.add(atom);
                     	
                     } catch(DatatypeNoMatchException e) {
@@ -169,7 +173,7 @@ public class SPARQLParser {
             			terms.add(c1); 
             			terms.add(c2);
             			
-            			PredicateAtom atom = new PredicateAtom(t2, terms); 
+            			OntologyPredicateAtom atom = new OntologyPredicateAtom(t2, terms); 
             			atoms.add(atom);
             			
             		} catch(DatatypeNoMatchException e) {

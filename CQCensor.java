@@ -5,6 +5,8 @@
 package cqcensors;
 
 import cqcensors.fol.*;
+import cqcensors.fol.DataConstant.DatatypeNoMatchException;
+import cqcensors.fol.PredicateAtom.PredicateArityException;
 import cqcensors.policy.EpistemicDependency;
 import cqcensors.policy.DependencyGraph;
 import cqcensors.policy.OntologyConjunctiveQuery;
@@ -17,6 +19,8 @@ import java.util.*;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+
+import cqcensors.fol.OntologyPredicateAtom.Type;
 
 
 import static cqcensors.QueryChecker.loadEDPolicyFromJson;
@@ -71,23 +75,89 @@ public class CQCensor {
          * POLICY EXPANSION
          */
         
-        System.out.println("Expanding policy w.r.t. TBox");
+        
+        //System.out.println("Expanding policy w.r.t. TBox");
         policyExpWrtTBox = rewriteEDPolicyWrtTbox(policy, tbox);
         // Logger.info("Policy Expanded w.r.t. TBox: " + expandedwrtTBox);
+        /*
         for (EpistemicDependency ed: policyExpWrtTBox) {
         	System.out.println(ed);
         }
+        */
         
-        System.out.println("Expanding policy w.r.t. TBOX and itself");
+        //System.out.println("Expanding policy w.r.t. TBOX and itself");
         policyExp = expandAcyclicPolicy(policy, tbox);
         
+        /*
         for (EpistemicDependency ed: policyExp) {
         	System.out.println(ed);
         }
+        */
         
-        System.out.println("\n");
         
-        CompleteCons(policyExp);
+        
+        
+        
+        /*
+         * POLICY CONSEQUENCES TESTS
+         */
+         
+        //System.out.println("\n");
+        
+        Map<Term, Term> sigma = new HashMap<>();
+        
+        Variable v1 = new Variable("x");
+        Variable v2 = new Variable("y");
+        ObjectConstant c = new ObjectConstant("c");
+ 
+        
+        
+        List<Term> terms1 = new ArrayList<>(); 
+        terms1.add(v1);
+        terms1.add(v2);
+        
+        List<Term> terms2 = new ArrayList<>(); 
+        terms2.add(v2);
+        terms2.add(c);
+        //List<Constant> constants = new ArrayList<>();
+        /*
+        try {
+			DataConstant c = new DataConstant("c");
+			terms2.add(c);
+			constants.add(c);
+		} catch (DatatypeNoMatchException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+		*/
+        
+        // R(x,y) and S(y, c)
+        OntologyPredicateAtom opa1 = new OntologyPredicateAtom("R", terms1); //, Type.ROLE);
+        OntologyPredicateAtom opa2 = new OntologyPredicateAtom("S", terms2); //, Type.ROLE);
+        
+        List<OntologyPredicateAtom> atoms = new ArrayList<>();
+        atoms.add(opa1);
+        atoms.add(opa2);
+        
+        List<Variable> free_vars = new ArrayList<>();
+        free_vars.add(v1);
+        free_vars.add(v2);
+        
+        OntologyConjunctiveQuery q = new OntologyConjunctiveQuery(atoms, free_vars);
+        
+        //Logger.info("Ontology CQ: " + q);
+        
+        List<Map<Term, Term>> maps = new ArrayList<>();
+        //maps = computePrecondition(free_vars, constants, sigma);
+        
+        
+        //Logger.info("Unidirectional mappings \n: " + maps);
+        
+        Map<OntologyConjunctiveQuery, Map<Term, Term>> S = PolicyCons(policyExpWrtTBox, q, sigma);
+        
+        Logger.info("S: " + S);
+        
+        //CompleteCons(policyExpWrtTBox, sigma);
         
         //ComputeClashQueries(policyExp);
         
@@ -95,7 +165,7 @@ public class CQCensor {
     
     
     private HashSet<EpistemicDependency> expandAcyclicPolicy(Set<EpistemicDependency> policy, OWLOntology ontology) throws Term.TermTypeException, PredicateAtom.PredicateArityException, URISyntaxException {
-    	Logger.info("ACYCLIC EXPANSION"); 
+    	//Logger.info("ACYCLIC EXPANSION"); 
     	/*
     	 * We proceed in two steps:
     	 * 		1. Expand P w.r.t. T and get P'
@@ -228,7 +298,7 @@ public class CQCensor {
     	}
     }
     
-    public Result compute_homomorphisms(ArrayList<OntologyPredicateAtom> body_atoms, Set<PredicateAtom> query_atoms, List<Variable> universally_quantified_vars) {
+    public Result compute_homomorphisms(ArrayList<OntologyPredicateAtom> body_atoms, Set<OntologyPredicateAtom> query_atoms, List<Variable> universally_quantified_vars) {
     	ArrayList<ArrayList<HashMap<Term, Term>>> H = new ArrayList<ArrayList<HashMap<Term, Term>>>();
     	
     	/* INPUT:
@@ -320,7 +390,7 @@ public class CQCensor {
     */
     
     // Maybe: public Set<ConjunctiveQuery>
-	public Set<OntologyConjunctiveQuery> ComputeClashQueries(Set<EpistemicDependency> policy) throws IOException{
+	public Set<OntologyConjunctiveQuery> ComputeClashQueries(Set<EpistemicDependency> policy) throws IOException, URISyntaxException, PredicateArityException, TermTypeException{
         
         Set<OntologyConjunctiveQuery> Q = new HashSet<>();
         
@@ -336,7 +406,7 @@ public class CQCensor {
         }
         
         // Retrieve the set of Atoms in the sparql query
-        Set<PredicateAtom> sparql_query_atoms = SPARQL_parser(sparql_query);
+        Set<OntologyPredicateAtom> sparql_query_atoms = SPARQL_parser(sparql_query);
         Logger.info("Parsed sparql_query, found atoms: " + sparql_query_atoms);
         
         for (EpistemicDependency ed: policy) {
@@ -481,7 +551,7 @@ public class CQCensor {
                 		}
                 		
                 		
-                		cq_atoms.add(new PredicateAtom(a.getPredicateName(), atom_terms));
+                		cq_atoms.add(new OntologyPredicateAtom(a.getPredicateName(), atom_terms));
                 		
                 	}
                 	
@@ -712,67 +782,433 @@ public class CQCensor {
      * 	POLICY CONSEQUENCES ALG
      */
     
-    // OntologyConjunctiveQuery
-    private void CompleteCons(Set<EpistemicDependency> policy) {	//	, OntologyConjunctiveQuery q, HashMap<Term, Term> sigma) {
-    	HashSet<OntologyConjunctiveQuery> C = new HashSet<>();
+    // @SuppressWarnings({ "unlikely-arg-type", "unlikely-arg-type" })
+	private List<Map<Term, Term>> computePrecondition(List<Variable> free_vars, List<Constant> constants) { //,  Map<Term, Term> sigma) {
     	
     	/*
-    	do {
-    		HashSet<OntologyConjunctiveQuery> C_aux = new HashSet<>();
+    	 * INPUT: 
+    	 * 	- free_vars: free variables of candidate clash query
+    	 *  - constants: constants in the candidate clash query
+    	 * 	- sigma: mapping of the variables
+    	 * 
+    	 * OUTPUT:
+    	 * 	- returns the set of relevant mappings of the free variables in sigma(q) to the free variables and constants of sigma(q)
+    	 * 		NOTE: Each mapping cannot be the identity
+    	 */
+    	List<Map<Term,Term>> mappings = new ArrayList<>();
+    
+    	
+    	Map<Term, List<Term>> UM = new HashMap<>(); 	// HashMap for storing the unidirectional mappings
+    	
+    	
+    	/*
+    	 * First, map the free vars to the free vars, avoiding mapping a 
+    	 * variable to itself and symmetric mappings, i.e. mappings of the 
+    	 * kind { x → y } and { y → x }.
+    	 * Second, map the free vars to constants
+    	 */
+    	for (Variable v1: free_vars) {
+    		for (Variable v2: free_vars) {
+    			if (!v1.equals(v2) && !(UM.containsKey(v2) && UM.get(v2).contains(v1))) {
+    				if (!UM.containsKey(v1)) {
+    					List<Term> L = new ArrayList<>();
+    					L.add(v2);
+    					UM.put(v1, L);
+    				}
+    				else {
+    					if (!UM.get(v1).contains(v2)) {
+    						UM.get(v1).add(v2);
+    					}
+    				}
+    				
+    			}
+    		}
     		
-    		for (EpistemicDependency ED: policy) {
-    			
+    		// Now is the turn of the constants
+    		for (Constant c: constants) {
+    			if (!UM.containsKey(v1)) {
+    				List<Term> L = new ArrayList<>(); 
+    				L.add(c);
+    				UM.put(v1, L);
+    			}
+    			else {
+    				if (!UM.get(v1).contains(c)) {
+    					UM.get(v1).add(c);
+    				}
+    			}
+    		}
+    		
+    	}
+    	
+    	/*
+    	 * Compute the relevant combinations of mappings
+    	 * 	1. We start by putting in 'mappings' the unidirectional mappings computed at the previous step
+    	 *  2. We compute the relevant combinations of these unidirectional mappings
+    	 */
+    	
+    	
+    	int l = UM.size();
+    	ArrayList<Integer> A = new ArrayList<>(); 
+    	
+    	// Initialize A with l 0s
+    	for (int i = 0; i < l; i++) {
+    		A.add(0);
+    	}
+    	ArrayList<Integer> A1 = new ArrayList<>(A);
+    	
+    	// Initialize an array K storing the number of values for each key
+    	ArrayList<Integer> K = new ArrayList<>(); 
+    	
+    	for (var entry: UM.entrySet()) {
+    		K.add(entry.getValue().size());
+    	}
+    	
+    	ArrayList<Term> keys = new ArrayList<>();
+    	for (Term k: UM.keySet()) {
+    		keys.add(k);
+    	}
+    	
+    	ArrayList<Integer> A2 = new ArrayList<>();
+    	
+    	//Logger.info("K: " + K);
+    	//Logger.info("Unidirectional mappings: " + UM);
+    	
+    	A1 = Increment_all(A1, K); // Skip the case [0, ..., 0]
+    	
+    	do {
+    		A2 = new ArrayList<>(A1);
+    		Map<Term, Term> map = new HashMap<>();
+    		boolean relevant = true;
+    		for (int i = 0; i < l; i++) {
+    			if (A1.get(i) > 0) {
+	    			if (!(map.values().contains(keys.get(i)) || map.containsKey(UM.get(keys.get(i)).get(A1.get(i)-1)))) {
+	    				/*
+	    				 * The if condition prevents two cases:
+	    				 * 		1. {x → y}; then avoids putting y → c
+	    				 * 		2. {y → c}; then it avoids putting x → y
+	    				 */
+	    				
+	    				map.put(keys.get(i), UM.get(keys.get(i)).get(A1.get(i)-1));
+	    				//Logger.warn("MAP: " + map);
+	    			}
+	    			else {
+	    				relevant = false;
+	    				continue;	// not a relevant mapping
+	    			}
+    			}
+    		}
+    		if (relevant) {
+    			mappings.add(map);
+    		}
+    		A1 = Increment_all(A1, K);
+    	} while (!A1.equals(A2));
+    	
+    	
+    	return mappings;
+    }
+	
+	
+
+    
+private OntologyConjunctiveQuery apply_sigma(OntologyConjunctiveQuery q, Map<Term, Term> sigma) throws URISyntaxException, PredicateArityException, TermTypeException {
+    	
+    	/*
+    	 * Takes in input a set of atoms a mapping sigma
+    	 * Returns a new set of atoms with variables replaced by the substitution in sigma
+    	 */
+	
+		if (sigma.isEmpty()) {
+			return q;
+		}
+	
+		Set<OntologyPredicateAtom> atoms = q.getAllPredicateAtoms();
+		ArrayList<Variable> free_vars = q.getFreeVariables();
+    	
+		ArrayList<Variable> unbounded_free_vars = new ArrayList<>();
+		
+		for (Variable v: free_vars) {
+			Variable new_v = new Variable(v.getName());
+			unbounded_free_vars.add(new_v);
+		}
+    	
+    	// Unbound terms
+    	Map<Term, Term> unbounded_sigma = new HashMap<>();
+    	for (var e: sigma.entrySet()) {
+    		if (e.getKey() instanceof Variable && e.getValue() instanceof Variable) {
+    			Variable k = new Variable(((Variable) e.getKey()).getName());
+    			Variable v = new Variable(((Variable) e.getValue()).getName());
+    			unbounded_sigma.put(k, v);
+    		}
+    		
+    		else if (e.getKey() instanceof Variable) {
+    			Variable k = new Variable(((Variable) e.getKey()).getName());
+    			unbounded_sigma.put(k, e.getValue());
     		}
     	}
-    	*/
     	
-    	// parse the query
-        String sparql_query = "";
-        try {
-            sparql_query = Files.readString(Path.of(queryFilePath));
-            Logger.info("Read SARQL_query: \n" + sparql_query);
-            
-            
-        } catch(IOException e) {
-        	Logger.error("Query not found: " + e.getMessage());
-        }
+    	Set<PredicateAtom> mapped_atoms = new HashSet<>();
     	
-    	// Retrieve the set of Atoms in the sparql query
-        Set<PredicateAtom> sparql_query_atoms = SPARQL_parser(sparql_query);
-        Logger.info("Parsed sparql_query, found atoms: " + sparql_query_atoms);
-    	
-    	for (EpistemicDependency ed: policy) {
-    		OntologyConjunctiveQuery body = ed.getBody();
+    	for (OntologyPredicateAtom a: atoms) {
     		
-    		Logger.info("ED body: " + body);
+    		// unbound terms
+    		List<Term> terms = new ArrayList<>(a.getTerms());
+    		//Logger.debug("Terms: " + terms);
+    		List<Term> unbounded_terms = new ArrayList<>();
+    		for (Term t: terms) {
+    			if (t instanceof Variable) {
+    				Variable v = new Variable(((Variable) t).getName());
+    				//v.unbind();
+    				unbounded_terms.add(v);
+    			}
+    			else {
+    				unbounded_terms.add(t);
+    			}
+    		}
     		
-    		ArrayList<Variable> universally_quantified_vars = ed.getUniversallyQuantifiedVariables();
+    		// map variables
+    		for (int i = 0; i < unbounded_terms.size(); i++) {
+    			Term t = unbounded_terms.get(i);
+    			if (t instanceof Variable) {
+	    			if (unbounded_sigma.containsKey(t)) {
+	    				Term t2 = unbounded_sigma.get(t); // t2 is the mapping term, i.e. t → t2
+	    				unbounded_terms.set(i, t2);
+	    				
+	    				if (t2 instanceof ObjectConstant) {
+	    					unbounded_free_vars.remove(t);	// if the mapping term is a constant, we simply remove it from the set of variables
+	    				}
+	    				else {
+	    					// Since t2 is a variable, replace t with t2
+	    					unbounded_free_vars.remove(t);
+	    					if (!unbounded_free_vars.contains(t2)) {
+	    						unbounded_free_vars.add((Variable) t2);
+	    					}
+	    				}
+	    			}
+    			}
+	    	}
     		
-    		Set<OntologyPredicateAtom> atoms = body.getAllPredicateAtoms();
-        	// We store everything in an ArrayList, since we'll need to preserve the order
-        	ArrayList<OntologyPredicateAtom> ED_atoms = new ArrayList<>();
-        	for (OntologyPredicateAtom a: atoms) {
-        		ED_atoms.add(a);        	
-        	}
-        	
-        	ArrayList<HashMap<Term, Term>> simple_homos = simple_homomorphism(ED_atoms, sparql_query_atoms, universally_quantified_vars);
-        	
-        	Logger.info("Found simple homomorphisms" + simple_homos);
-    		
+    		mapped_atoms.add(new OntologyPredicateAtom(a.getPredicateName(), unbounded_terms));
     	}
+ 
     	
-    	return;
+    	OntologyConjunctiveQuery mapped_query = new OntologyConjunctiveQuery(mapped_atoms, unbounded_free_vars);
+    	
+    	return mapped_query;
+    	
     }
     
     
-    private ArrayList<HashMap<Term, Term>> simple_homomorphism(ArrayList<OntologyPredicateAtom> body_atoms, Set<PredicateAtom> query_atoms, List<Variable> universally_quantified_vars) {
+ 
+    public Map<OntologyConjunctiveQuery, Map<Term, Term>> PolicyCons(Set<EpistemicDependency> policy, OntologyConjunctiveQuery q, Map<Term, Term> sigma) throws URISyntaxException, PredicateArityException, TermTypeException{
+    	        
+    	
+    	System.out.println("\n");
+    	Logger.info("********* CALLING COMPLETE CONS ************");
+    	
+    	
+    	OntologyConjunctiveQuery q_cons = CompleteCons(policy, q, sigma);
+    	
+    	System.out.println("\n\n");
+    	Logger.info("********* RETURNING TO POLICY CONS ************");
+    	
+    	ArrayList<Variable> free_vars = q_cons.getFreeVariables();
+    	Set<OntologyPredicateAtom> atoms = q_cons.getAllPredicateAtoms();
+    	
+    	
+    	Map<OntologyConjunctiveQuery, Map<Term, Term>> S = new HashMap<>();	// S = {(q, sigma)}
+    	S.putIfAbsent(q_cons, sigma);
+
+    	
+    	// Compute sigma(q)
+    	
+    	OntologyConjunctiveQuery sigma_q = apply_sigma(q_cons, sigma);
+    	
+    	ArrayList<Variable> sigma_q_free_vars = sigma_q.getFreeVariables();
+    	
+		List<Constant> cons = new ArrayList<>();
+		
+		for (Term c: sigma_q.getConstants()) {
+			if (!cons.contains(c)) 
+				cons.add((Constant) c);
+		}
+    	
+    	Logger.warn("Sigma(Q) free vars: " + sigma_q_free_vars);
+    	// Logger.error("Constants: " + cons);
+    	// Compute the set of preconditions for computing a simple homomorphism
+    	List<Map<Term, Term>> preconditions = computePrecondition(sigma_q_free_vars, cons);
+    	
+    	if (preconditions.get(0).isEmpty()) return S;
+    	
+    	Logger.debug("Preconditions: " + preconditions);
+    	
+    	for (Map<Term, Term> p: preconditions) {
+    		for (EpistemicDependency ed: policy) {
+    			
+    			// Apply precondition p to the atoms of the mapped query, i.e. sigma(q)
+    			
+    			OntologyConjunctiveQuery p_q = apply_sigma(sigma_q, p);
+    			Set<OntologyPredicateAtom> mapped_atoms = p_q.getAllPredicateAtoms();
+    			Logger.debug("h'(q):" + p_q);
+    			
+    			
+    			// Compute the simple homomorphisms from body(delta) to p(q)
+    			
+    			OntologyConjunctiveQuery body = ed.getBody();
+    			Set<OntologyPredicateAtom> ED_body_atoms = body.getAllPredicateAtoms();
+    			ArrayList<OntologyPredicateAtom> body_atoms = new ArrayList<>();
+            	for (OntologyPredicateAtom a: ED_body_atoms) {
+            		body_atoms.add(a);        	
+            	}
+            	
+    			ArrayList<Variable> body_free_vars = ed.getUniversallyQuantifiedVariables();
+
+    			// Finally compute the simple homomorphisms
+    			ArrayList<HashMap<Term, Term>> simple_homos = simple_homomorphism(body_atoms, mapped_atoms, body_free_vars);
+    			
+    			if (simple_homos.isEmpty()) continue;	// If no simple homomorphism was found, then continue
+    			
+    			//Logger.info("\nFound simple homos: " + simple_homos);
+    			//Logger.warn("Sigma: " + sigma);
+    			
+    			// If we found a simple homomorphisms, then extend the current sigma
+				Map<Term, Term> new_sigma = new HashMap<>(sigma);
+				new_sigma.putAll(p);
+				Logger.warn("Sigma': " + new_sigma);
+    			
+    			for (HashMap<Term, Term> h: simple_homos) {
+    				
+    				// We check if we derive a new consequence
+    				boolean new_head = false;
+    				
+    				// Compute head(h(delta)), i.e. apply homomorphism to the head of the epistemic dependency
+    				OntologyConjunctiveQuery head = ed.getHead();
+    				OntologyConjunctiveQuery mapped_head = apply_sigma(head, h);
+    				Set<OntologyPredicateAtom> mapped_head_atoms = mapped_head.getAllPredicateAtoms();
+    				
+    				
+    				Set<OntologyPredicateAtom> new_query_atoms = new HashSet<>(atoms);
+    				
+    				for (OntologyPredicateAtom opa: mapped_head_atoms) {
+    					if (!new_query_atoms.contains(opa)) {
+    						new_query_atoms.add(opa);
+    						new_head = true;	// We found a new consequence, so we add it
+    					}
+    				}
+    				
+    				if (new_head) {
+	    				OntologyConjunctiveQuery cq = new OntologyConjunctiveQuery(new_query_atoms, free_vars);
+	    				Logger.debug("NEW CQ: " + cq);
+	    				
+	    				Map<OntologyConjunctiveQuery, Map<Term, Term>> newS = PolicyCons(policy, cq, new_sigma);
+	    				
+	    				for (var entry: newS.entrySet()) {
+	    					S.putIfAbsent(entry.getKey(), entry.getValue());
+	    				}
+    				}			
+    				
+    			}
+    		}
+    	}
+    	
+    	return S;
+    }
+    
+    // OntologyConjunctiveQuery
+    private OntologyConjunctiveQuery CompleteCons(Set<EpistemicDependency> policy, OntologyConjunctiveQuery q, Map<Term, Term> sigma) throws URISyntaxException, PredicateArityException, TermTypeException {	//	, OntologyConjunctiveQuery q, HashMap<Term, Term> sigma) {
+    	
+    	/*
+    	 * INPUT: 
+    	 * 	- policy: set of epistemic dependencies
+    	 *  - sigma: mapping from free vars of q to free vars of q, constants of q, and constants of the policy
+    	 *  
+    	 *  OUTPUT: 
+    	 *   - conjunctive query (the query together with its policy consequences
+    	 */
+    	
+    	if (sigma.isEmpty()) return q;
+        
+        
+    	Set<OntologyPredicateAtom> original_atoms = q.getAllPredicateAtoms();
+    	
+    	/*
+    	 * 	APPLY SIGMA TO THE QUERY
+    	 */
+    	
+    	OntologyConjunctiveQuery sigmaQ = apply_sigma(q, sigma);
+    	Set<OntologyPredicateAtom> sigmaQ_atoms = sigmaQ.getAllPredicateAtoms();
+        
+        
+        List<Variable> free_vars = q.getFreeVariables();
+        
+        Set<OntologyPredicateAtom> C = new HashSet<>(sigmaQ_atoms);	
+        Set<OntologyPredicateAtom> C_aux = new HashSet<>();
+    	
+        while (true) {
+        	boolean new_head = false;	// to keep track when we add new consequences
+        	
+	    	for (EpistemicDependency ed: policy) {
+	    		OntologyConjunctiveQuery body = ed.getBody();
+	    		
+	    		
+	    		ArrayList<Variable> universally_quantified_vars = ed.getUniversallyQuantifiedVariables();
+	    		
+	    		Set<OntologyPredicateAtom> atoms = body.getAllPredicateAtoms();
+	    		
+	        	ArrayList<OntologyPredicateAtom> ED_atoms = new ArrayList<>();
+	        	for (OntologyPredicateAtom a: atoms) {
+	        		ED_atoms.add(a);        	
+	        	}
+	        	
+	    
+	        	ArrayList<HashMap<Term, Term>> simple_homos = simple_homomorphism(ED_atoms, C, universally_quantified_vars);
+	        
+	        	
+	        	if (!simple_homos.isEmpty()) {
+	        		
+	        		
+	        		OntologyConjunctiveQuery head = ed.getHead();
+	        	
+	        		
+	        		for (Map<Term, Term> h: simple_homos) {
+	        			OntologyConjunctiveQuery mapped_head = apply_sigma(head, h);
+	        			Set<OntologyPredicateAtom> mapped_atoms_head = mapped_head.getAllPredicateAtoms();
+	        			
+	        			for (OntologyPredicateAtom a: mapped_atoms_head) {
+	        				if (!C.contains(a)) {
+	        					C.add(a);
+	        					C_aux.add(a);
+	        					new_head = true;
+	        				}
+	        			}
+	        		}
+
+	        	}
+	    	}
+	    	
+	    	if (!new_head) {
+	    		break;
+	    	}
+    		
+    	}
+        
+        
+        Set<OntologyPredicateAtom> new_atoms = new HashSet<>(original_atoms);
+        new_atoms.addAll(C_aux);
+        OntologyConjunctiveQuery cq = new OntologyConjunctiveQuery(new_atoms, free_vars);
+        Logger.info("CQ with consequences: " + cq);
+    	
+    	return cq;
+    }
+    
+    
+    private ArrayList<HashMap<Term, Term>> simple_homomorphism(ArrayList<OntologyPredicateAtom> body_atoms, Set<OntologyPredicateAtom> query_atoms, List<Variable> universally_quantified_vars) {
     	/*
     	 * INPUT:
     	 * 		body_atoms: List of atoms occurring in the epistemic dependency
     	 * 		query_atoms: atoms occurring in the query
     	 * 
     	 * OUTPUT:
-    	 * 		a simple homomorphism from body_atoms to query_atoms
+    	 * 		an array list of simple homomorphisms from body_atoms to query_atoms
     	 */
     	
     	ArrayList<HashMap<Term, Term>> h = new ArrayList<>(); 
@@ -780,14 +1216,14 @@ public class CQCensor {
     	Result res = compute_homomorphisms(body_atoms, query_atoms, universally_quantified_vars);
     	
     	ArrayList<ArrayList<HashMap<Term, Term>>> homomorphisms = res.homomorphisms;
-    	ArrayList<Integer> indexes = res.indexes;
+    	//ArrayList<Integer> indexes = res.indexes;
     	
     	
     	int l = homomorphisms.size();
     	
     	
     	// A simple homomorphism maps all the atoms of the body. If some of 
-    	// these are not mapped, then we return the empty
+    	// these are not mapped, then we return the empty set
     	if (l < body_atoms.size())
     		return h;
     	
