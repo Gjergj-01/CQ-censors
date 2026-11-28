@@ -10,6 +10,10 @@ import java.util.regex.Matcher;
 import java.net.URISyntaxException;
 import java.util.*;
 
+import org.apache.jena.query.Query;
+import org.apache.jena.query.QueryFactory;
+import org.apache.jena.query.Syntax;
+
 public class SPARQLParser {
 	
 	/*
@@ -34,8 +38,8 @@ public class SPARQLParser {
     // Regex matching a Basic Graph Pattern (BGP) in a sparql query
 
     private static final String BGP_regex = "(\\?\\w+|\\w+)\\s+(:?\\w+|rdf:type|a)\\s+(\\?\\w+|:?\\w+)\\s*\\.";  
-    
-	
+
+    	
 	public static Set<OntologyPredicateAtom> SPARQL_parser(String sparql) throws URISyntaxException, PredicateArityException, TermTypeException {
 		
 		Set<OntologyPredicateAtom> atoms = new HashSet<>();
@@ -191,5 +195,27 @@ public class SPARQLParser {
         return atoms;
 		
 	}
+	
+	
+	public static List<Variable> getDistinguishedVars(String sparql) {
+		
+		// Retrieves the vars in the select clause
+		List<Variable> distinguishedVars = new ArrayList<>();
+		
+		Query query = new Query();
+	    query.setPrefix("", "http://example.org/");   // default (empty) prefix
+	    QueryFactory.parse(query, sparql, null, Syntax.syntaxSPARQL_11);
+	    
+		for (String s: query.getResultVars()) {
+			Variable v = new Variable(s);
+			distinguishedVars.add(v);
+		}
+		
+		return distinguishedVars;
+		
+	}
+	
+	
+	
 
 }

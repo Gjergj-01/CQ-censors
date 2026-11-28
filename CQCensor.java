@@ -26,7 +26,7 @@ import java.util.*;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
+//import java.nio.file.Paths;
 
 
 import java.util.regex.Pattern;
@@ -41,6 +41,7 @@ import static cqcensors.util.OntologyUtils.loadOntology;
 import static cqcensors.Increment.Increment_all;
 import static cqcensors.Increment.Increment_all_non_zeros;
 import static cqcensors.SPARQLParser.SPARQL_parser;
+import static cqcensors.SPARQLParser.getDistinguishedVars;
 import static cqcensors.policy.EpistemicDependency.IND_AUX_PRED_NAME;
 import static cqcensors.fol.MostGeneralUnifier.findMGU;
 
@@ -51,6 +52,7 @@ public class CQCensor {
     
     Configuration configuration; 
     String queryFilePath; 
+    String userQuery_sparql;
     static OWLOntology tbox; 
     static Set<EpistemicDependency> policy; 
     static Set<EpistemicDependency> policyExpWrtTBox;	// ← policy expanded w.r.t. the TBox
@@ -83,6 +85,9 @@ public class CQCensor {
             Logger.error("POLICY NOT ACYCLIC, EXITING ..."); // Maybe should raise an ERROR
         }
         
+        // Read the query
+        userQuery_sparql = Files.readString(Path.of(queryFilePath));
+        
         /*
          * POLICY EXPANSION
          */
@@ -91,23 +96,10 @@ public class CQCensor {
         //System.out.println("Expanding policy w.r.t. TBox");
         policyExpWrtTBox = rewriteEDPolicyWrtTbox(policy, tbox);
         // Logger.info("Policy Expanded w.r.t. TBox: " + expandedwrtTBox);
-        /*
-        for (EpistemicDependency ed: policyExpWrtTBox) {
-        	System.out.println(ed);
-        }
-        */
+        
         
         //System.out.println("Expanding policy w.r.t. TBOX and itself");
         policyExp = expandAcyclicPolicy(policy, tbox);
-        
-        /*
-        for (EpistemicDependency ed: policyExp) {
-        	System.out.println(ed);
-        }
-        */
-        
-        
-        
         
         
         /*
@@ -207,6 +199,114 @@ public class CQCensor {
         
         
         
+        //Set<OntologyConjunctiveQuery> rewrittenQuery = TreeWitnessClient.rewriteQuery(userQuery_sparql, tbox, true);
+        
+        //Logger.info(rewrittenQuery);
+        
+        /*
+         * BCQ rewriting
+         */
+        
+        List<Term> terms = new ArrayList<>(); 
+        terms.add(v1);
+        OntologyPredicateAtom atom = new OntologyPredicateAtom("Patient", terms);
+        List<OntologyPredicateAtom> BCQ_atoms = new ArrayList<>();
+        BCQ_atoms.add(atom);
+        OntologyConjunctiveQuery ocq = new OntologyConjunctiveQuery(BCQ_atoms,  new ArrayList<Variable>());
+        
+        ArrayList<Variable> ExistentialVars = ocq.getQuantifiedVariables();
+        //Logger.info("Existential vars: " + ExistentialVars);
+        
+        //Formula f = new Exist((Formula) ocq.getBody(), ExistentialVars);
+        
+        //Logger.debug("Formula: " + f);
+        
+        //Logger.debug("BCQ: " + ocq);
+        /*
+        String sparql = ocq.toSparql();
+        String formatted_sparql = format_query(sparql);
+        Logger.debug(formatted_sparql);
+        */
+        
+        //Set<OntologyConjunctiveQuery> rewrittenQuery = TreeWitnessClient.rewriteQuery(formatted_sparql, tbox, true);
+        
+        /*
+         * phi_pc test
+         */
+        
+        List<Variable> freeVars = new ArrayList<Variable>();
+        freeVars.add(v1);
+        OntologyConjunctiveQuery CQ = new OntologyConjunctiveQuery(BCQ_atoms, freeVars);
+        
+        //Logger.debug("CQ: " + CQ);
+        
+        // Disjunction d = phi_pc(CQ);
+        
+        //Logger.info("phi_pc: " + d);
+        
+        List<Variable> vars = new ArrayList<Variable>();
+        
+        vars.add(v1); 
+        vars.add(v2);
+        
+        OntologyPredicateAtom AND = new OntologyPredicateAtom("clinicalData", vars);
+        List<OntologyPredicateAtom> and_atoms = new ArrayList<OntologyPredicateAtom>();
+        and_atoms.add(atom);
+        and_atoms.add(AND);
+        
+        
+        List<Variable> AND_freeVars = new ArrayList<>();
+        AND_freeVars.add(v1);
+        
+        OntologyConjunctiveQuery AND_cq = new OntologyConjunctiveQuery(and_atoms, AND_freeVars);
+        
+        //Logger.info("AND_cq: " + AND_cq + " Free vars: " + AND_cq.getFreeVariables());
+        
+        //Disjunction d2 = phi_pc(AND_cq);
+        
+        //Logger.info("phi_pc2: " + d2);
+        
+        
+        /*
+         * Clash tests
+         */
+        
+        // v1 → x, v2 → y, v3 → w
+        
+        /*
+        List<Term> A_terms = new ArrayList<>();
+        A_terms.add(v3);
+        OntologyPredicateAtom A = new OntologyPredicateAtom("A", A_terms);
+        Set<OntologyPredicateAtom> cq_atoms = new HashSet<>();
+        cq_atoms.add(A);
+        List<Variable> cq_freeVars = new ArrayList<>();
+        cq_freeVars.add(v3);
+        OntologyConjunctiveQuery cq = new OntologyConjunctiveQuery(cq_atoms, cq_freeVars);
+        
+        Logger.info("CQ: " + cq);
+        
+        
+        List<Term> R_terms = new ArrayList<>();
+        R_terms.add(v3);
+        R_terms.add(v2);
+        OntologyPredicateAtom R = new OntologyPredicateAtom("R", R_terms);
+        Set<OntologyPredicateAtom> clash_atoms = new HashSet<>();
+        clash_atoms.add(R);
+        List<Variable> clash_freeVars = new ArrayList<>();
+        clash_freeVars.add(v3);
+        clash_freeVars.add(v2);
+        OntologyConjunctiveQuery candidate_clash = new OntologyConjunctiveQuery(clash_atoms, clash_freeVars);
+        
+        Logger.info("clash: " + candidate_clash);
+        
+        String query = cq.toSparql();
+        String sparql_query = format_query(query);
+        
+        Logger.debug("SPARQL query: " + sparql_query);
+        
+        Clash(candidate_clash, sparql_query);
+        
+        */
         
         
         
@@ -242,9 +342,31 @@ public class CQCensor {
 		}
 		*/
         
+        /*
         System.out.println("Query: " + q);
         try {
 			sql_exec_OCQ(q);
+		} catch (DriverNotFoundException | PredicateArityException | TermTypeException | URISyntaxException
+				| SQLificationException | SQLException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+		*/
+        
+        
+        /*
+         * COMPLETE TEST
+         */
+        
+        Set<OntologyConjunctiveQuery> Q = ComputeClashQueries(this.policyExp);
+        
+        Conjunction scentailedFormula = SC_entailed(Q);
+        
+        Logger.info("***** SC-Entailed ***** \n" + scentailedFormula);
+        
+        
+        try {
+			sql_exec_OCQ(scentailedFormula);
 		} catch (DriverNotFoundException | PredicateArityException | TermTypeException | URISyntaxException
 				| SQLificationException | SQLException e) {
 			// TODO Auto-generated catch block
@@ -560,11 +682,11 @@ public class CQCensor {
         
         // parse the query
       
-        String sparql_query = Files.readString(Path.of(queryFilePath));
-        Logger.info("Read SARQL_query: \n" + sparql_query);
+        //String sparql_query = Files.readString(Path.of(queryFilePath));
+        //Logger.info("Read SARQL_query: \n" + sparql_query);
         
         // Retrieve the set of Atoms in the sparql query
-        Set<OntologyPredicateAtom> sparql_query_atoms = SPARQL_parser(sparql_query);
+        Set<OntologyPredicateAtom> sparql_query_atoms = SPARQL_parser(this.userQuery_sparql);
         Logger.info("Parsed sparql_query, found atoms: " + sparql_query_atoms);
         
         for (EpistemicDependency ed: policy) {
@@ -585,8 +707,9 @@ public class CQCensor {
         	
         	// Compute the homomorphisms from the atoms in the body of the ED
         	// to the atoms of the query
-        	List<Variable> query_free_vars = new ArrayList<>();		// The query posed to the KB is a BCQ so it has no free vars
-        	Result ris = compute_homomorphisms(ED_atoms, sparql_query_atoms, universally_quantified_vars, query_free_vars);
+        	List<Variable> distinguishedVars = getDistinguishedVars(this.userQuery_sparql);
+        	//List<Variable> query_free_vars = new ArrayList<>();		// The query posed to the KB is a BCQ so it has no free vars
+        	Result ris = compute_homomorphisms(ED_atoms, sparql_query_atoms, universally_quantified_vars, distinguishedVars);
         	
         	ArrayList<ArrayList<HashMap<Term, Term>>> homomorphisms = ris.homomorphisms;
         	ArrayList<Integer> indexes = ris.indexes;
@@ -698,7 +821,14 @@ public class CQCensor {
                 						if (t instanceof Variable) {
                 							Variable x = new Variable(((Variable) t).getName());
                 							x.unbind();
-                							if (free_vars.contains(x)) {
+                							if (free_vars.contains(x) && e.getValue() instanceof Variable) {
+                								// the variable has been mapped to a free variable
+                								free_vars.remove(x);
+                								free_vars.add((Variable) e.getValue());
+                							}
+                							else if (free_vars.contains(x)) { 
+                								// the variable has been mapped to a constant, 
+                								// simply remove it from freeVars
 	                							free_vars.remove(x);
                 							}
                 						}
@@ -808,7 +938,7 @@ public class CQCensor {
     	 * CHECK ADIMISSIBILITY
     	 * Sigma is admissible if it passes the following two checks:
     	 *     -1: it is a homomorphism
-    	 *     -2: if x is a variable occurring in the domain of sigma and sigma(x) is a variable. 
+    	 *     -2: if x is a EXISTENTIAL variable occurring in the domain of sigma and sigma(x) is a variable. 
     	 *         then x does not appear in Atoms(ED) minus dom(sigma).
     	 */
     	
@@ -841,10 +971,20 @@ public class CQCensor {
 	    		if (map.getValue() instanceof Variable) {
 	    			Variable v = (Variable) map.getKey();
 	    			for (OntologyPredicateAtom oa: QDiff) {
-	    				if (oa.getFreeVariables().contains(v)) {
+	    				
+	    				// If the atom contains the variable v and v is not a free variable
+	    				// then v is an existential var and the homomorphism is not admissible
+	    				if (oa.getVariables().contains(v) && !oa.getFreeVariables().contains(v)) {
+	    					
+	    					adm = false;
+	    					break;
+	    				}
+	    				/*
+	    				if (oa.getFreeVariables().contains(v)) {		// → NEED TO RETURN ON THIS!! WHY FREE VARIABLES?
 	    					adm = false; 
 	    					break;
 	    				}
+	    				*/
 	    			}
 	    		}
 	    		if (!adm) break;
@@ -1308,7 +1448,7 @@ private OntologyConjunctiveQuery apply_sigma(OntologyConjunctiveQuery q, Map<Ter
     	
     	Logger.info("Query: " + q + " Sigma: " + sigma);
     	
-    	if (sigma.isEmpty()) return q;
+    	// if (sigma.isEmpty()) return q;
         
         
     	Set<OntologyPredicateAtom> original_atoms = q.getAllPredicateAtoms();
@@ -1333,17 +1473,21 @@ private OntologyConjunctiveQuery apply_sigma(OntologyConjunctiveQuery q, Map<Ter
 	    	for (EpistemicDependency ed: policy) {
 	    		OntologyConjunctiveQuery body = ed.getBody();
 	    		
+	    		//if (ed.isDenial()) {
+				//	Logger.warn("HEAD: " + ed.getHead());
+				//}
 	    		
 	    		ArrayList<Variable> universally_quantified_vars = ed.getUniversallyQuantifiedVariables();
 	    		
 	    		Set<OntologyPredicateAtom> atoms = body.getAllPredicateAtoms();
 	    		
-	        	ArrayList<OntologyPredicateAtom> ED_atoms = new ArrayList<>();
+	        	ArrayList<OntologyPredicateAtom> ED_atoms = new ArrayList<>();	// We need an array (not set) of atoms
 	        	for (OntologyPredicateAtom a: atoms) {
 	        		ED_atoms.add(a);        	
 	        	}
 	        	
 	    
+	        	// compute the simple homomorphisms from the body of the ED to C 
 	        	ArrayList<HashMap<Term, Term>> simple_homos = simple_homomorphism(ED_atoms, C, universally_quantified_vars, sigmaQ_free_vars);
 	        
 	        	
@@ -1351,12 +1495,20 @@ private OntologyConjunctiveQuery apply_sigma(OntologyConjunctiveQuery q, Map<Ter
 	        		
 	        		
 	        		OntologyConjunctiveQuery head = ed.getHead();
+	        		
+	        		if (ed.isDenial()) {
+	        			// if we found a denial, we simply return the empty head
+	        			
+	        			return head;
+	        		}
 	        	
 	        		
 	        		for (Map<Term, Term> h: simple_homos) {
 	        			OntologyConjunctiveQuery mapped_head = apply_sigma(head, h);
 	        			Set<OntologyPredicateAtom> mapped_atoms_head = mapped_head.getAllPredicateAtoms();
 	        			
+	        			
+	        			// Check if we can add a new Immediate Consequence
 	        			for (OntologyPredicateAtom head_atom: mapped_atoms_head) {
 	        				boolean found = false;
 	        				for (OntologyPredicateAtom a: C) {
@@ -1368,9 +1520,11 @@ private OntologyConjunctiveQuery apply_sigma(OntologyConjunctiveQuery q, Map<Ter
 	        				}
 	        				
 	        				if (!found) {
+	        					
 	        					C.add(head_atom);
 	        					C_aux.add(head_atom);
 	        					//Logger.error("Adding head atom: " + head_atom);
+	        					
 	        					new_head = true;
 	        				}
 	        				
@@ -1530,94 +1684,166 @@ private OntologyConjunctiveQuery apply_sigma(OntologyConjunctiveQuery q, Map<Ter
      */
     
     
-    public Set<OntologyConjunctiveQuery> rewrite(OntologyConjunctiveQuery ocq) throws PredicateArityException, TermTypeException, URISyntaxException, IOException {
-    	
-    	//String query = new String(Files.readAllBytes(Paths.get(queryFilePath)));
-    	//String sparqlQuery = ocq.toSparql();
-    	
-    	// parse the query
-    	
-        String sparqlQuery = Files.readString(Path.of(queryFilePath));
-        
-        //String sparqlQuery = new String(Files.readAllBytes(Paths.get(queryFilePath)));
-        
-        String sparql = ocq.toSparql();   	
-        sparql = sparql.replace(">", "");
-        sparql = sparql.replace("<", ":");
-    	Logger.info("SPARQL query: " + sparql);
+    
+    public Disjunction phi_pc(OntologyConjunctiveQuery q) throws URISyntaxException, PredicateArityException, TermTypeException {
     	
     	/*
-    	 * Rewrite the query w.r.t. the tbox
+    	 * Input:
+    	 * 		OntologyConjunctiveQuery
+    	 * 
+    	 *  The method computes the policy consequences of the query, 
+    	 *  rewrites the conjunction of the query and her policy consequences, 
+    	 *  returns the Disjunction of the rewriting
     	 */
     	
-    	Set<OntologyConjunctiveQuery> rewrittenQuery = TreeWitnessClient.rewriteQuery(sparql, this.tbox, true);
+    	Disjunction disj = new Disjunction();
+    	Map<Term, Term> empty_sigma  = new HashMap<Term, Term>();
+    	// compute policy consequences
     	
-    	for (OntologyConjunctiveQuery cq: rewrittenQuery) {
-    		System.out.println(cq);
+    	/*
+    	 * NOTE: in the current implementation CompleteCons returns the conjunction of the query and its consequences
+    	 */
+    	OntologyConjunctiveQuery query_with_cons = CompleteCons(this.policyExpWrtTBox, q, empty_sigma);
+    		
+    	if (query_with_cons.containsOnlyFalse()) {
+    		disj.add(new False());
+    		return disj;
     	}
     	
-    	return rewrittenQuery;
-    }
+    	// convert query to sparql
+    	String sparql = query_with_cons.toSparql();	
+    	
+    	
+    	// Format the query for the rewriting algorithm
+    	String formatted_query = format_query(sparql);
     
-    
-    public Formula SC_entailed(Set<OntologyConjunctiveQuery> Q) throws URISyntaxException, PredicateArityException, TermTypeException, IOException {
+    	//Logger.debug("SPARQL query: " + sparql);
     	
-    	/*
-    	 * For now implement the original formulation of Clash:
-    	 * 	1. Rewrite query together with it's policy consequences.
-    	 * 	2. Rewrite query and candidate clash, together with its policy consequences
-    	 */
-    	
-    	String sparql_query = Files.readString(Path.of(queryFilePath));
-        Logger.info("Read SARQL_query: \n" + sparql_query);
-        
-        // Retrieve the set of Atoms in the sparql query
-        Set<OntologyPredicateAtom> sparql_query_atoms = SPARQL_parser(sparql_query);
-        OntologyConjunctiveQuery user_query = new OntologyConjunctiveQuery(sparql_query_atoms, new ArrayList<Variable>());
+    	// rewrite query
+    	Set<OntologyConjunctiveQuery> rewrittenQuery = TreeWitnessClient.rewriteQuery(formatted_query, tbox, true);
     	
     	
-    	Conjunction sc_entailed_formula = new Conjunction();
+    	// Build the disjunction of the rewritings
     	
-    	Disjunction FirstDisjunct = new Disjunction();
-    	Disjunction SecondDisjunct = new Disjunction();
-    	
-    	for (OntologyConjunctiveQuery candidate_clash_query: Q) {
+    	for (OntologyConjunctiveQuery ocq: rewrittenQuery) {
+    		ocq.explicitNondistinguishedNonsharedVariables();
+    		//Conjunction innerConjunction = new Conjunction();
+    		ArrayList<Variable> existentialVars = ocq.getQuantifiedVariables();
+    		Conjunction cq = ocq.getBody();
     		
-    		Map<Term, Term> sigma = new HashMap<>();
-    		Map<OntologyConjunctiveQuery, Map<Term, Term>> S = PolicyCons(policyExpWrtTBox, candidate_clash_query, sigma);
-    		
-    		for (var entry: S.entrySet()) {
-    			Conjunction cq = entry.getKey().getBody();
-    			FirstDisjunct.add(cq);
-    			
-    			
-    			// Compute rewriting of And({q, q'(x)})
-    			
-    			List<Variable> candidate_clash_freeVars = candidate_clash_query.getFreeVariables();
-    			Set<OntologyPredicateAtom> combined_atoms = candidate_clash_query.getAllPredicateAtoms();
-    			combined_atoms.addAll(sparql_query_atoms);
-    			OntologyConjunctiveQuery And = new OntologyConjunctiveQuery(combined_atoms, candidate_clash_freeVars);
-    			
-    			Set<OntologyConjunctiveQuery> qr = rewrite(And);
-    			
-    			for (OntologyConjunctiveQuery ocq: qr) {
-    				Conjunction conj = ocq.getBody();
-    				SecondDisjunct.add(conj);
-    			}
-    			
+    		if (!existentialVars.isEmpty()) {
+    			disj.add(new Exist((Formula) cq, existentialVars));
+    		} else {
+    			disj.add(cq);
     		}
-    		
-    		
-    		
     	}
     	
-    	sc_entailed_formula.add(FirstDisjunct);
-    	sc_entailed_formula.add(SecondDisjunct); // Should be negated
     	
-    	return sc_entailed_formula;
+    	return disj;
     	
     }
     
+    
+    
+    public Negation Clash(OntologyConjunctiveQuery candidate_clash, Set<OntologyPredicateAtom> userQuery_atoms, List<Variable> distinguishedVars) throws URISyntaxException, PredicateArityException, TermTypeException {
+    	/*
+    	 * 	Input:
+    	 * 		- candidate_clash: CQ q that is a potential clash for the user query in the CQE instance
+    	 * 		- userQuery: the (sparql) query posed to the Knowledge Base
+    	 * 
+    	 *  Output:
+    	 *  	- Clash formula
+    	 */
+    	
+    	
+    	/*
+    	 * 	Next we build the conjunction (AND) of the original query and the candidate clash query
+    	 */
+    	
+    	Set<OntologyPredicateAtom> candidate_clash_atoms = candidate_clash.getOntologyPredicateAtoms(); 
+    	Set<OntologyPredicateAtom> AND_atoms = new HashSet<>(candidate_clash_atoms);
+    	AND_atoms.addAll(userQuery_atoms);
+    	
+    	List<Variable> candidate_clash_freeVars = candidate_clash.getFreeVariables();
+    	List<Variable> AND_freeVars = new ArrayList<>(distinguishedVars);
+    	for (Variable v: candidate_clash_freeVars) {
+    		if (!AND_freeVars.contains(v)) {
+    			AND_freeVars.add(v);
+    		}
+    	}
+    	
+    	OntologyConjunctiveQuery AND = new OntologyConjunctiveQuery(AND_atoms, AND_freeVars);
+    	
+    	Logger.debug("AND: " + AND);
+    	
+    	// We build the two phi_pcs 
+    	// - One for the candidate clash query
+    	// - the other for the conjunction of the candidate clash and the user query
+    	Disjunction phi_pc1 = phi_pc(candidate_clash);
+    	Disjunction phi_pc2 = phi_pc(AND);
+    	
+    	ArrayList<Variable> existentialVars = new ArrayList<Variable>();
+    	
+    	// In the clash query, all the free variables (except for the distinguished ones in the user query) 
+    	// need to be quantified existentially
+    	for (Variable v: candidate_clash_freeVars) {
+    		if (!distinguishedVars.contains(v)) {
+    			existentialVars.add(v);
+    		}
+    	}
+    	
+    	Conjunction innerConjunction = new Conjunction();
+    	
+    	Negation neg_phi_pc = new Negation(phi_pc2);
+    	innerConjunction.add((Formula) phi_pc1);
+    	innerConjunction.add((Formula) neg_phi_pc);
+    	
+    	Conjunction clash = new Conjunction();
+    	if (!existentialVars.isEmpty()) {
+    		clash.add(new Exist((Formula) innerConjunction, existentialVars));
+    	}
+    	else {
+    		clash.add(innerConjunction);
+    	}
+    	
+    	Logger.info("***** CLASH ***** \n" + clash);
+    	
+    	Negation clashNegation = new Negation(clash);
+    	
+    	Logger.info("***** CLASH NEGATION ***** \n" + clashNegation);
+    	
+    	return clashNegation;
+    	
+    	
+
+    	
+    }
+    
+    public Conjunction SC_entailed(Set<OntologyConjunctiveQuery> Q) throws URISyntaxException, PredicateArityException, TermTypeException {
+    	
+    	
+    	Conjunction SCentailed = new Conjunction();
+    	Set<OntologyPredicateAtom> userQuery_atoms = SPARQL_parser(this.userQuery_sparql);
+    	List<Variable> distinguishedVars = getDistinguishedVars(this.userQuery_sparql);
+    	
+    	OntologyConjunctiveQuery userOCQ = new OntologyConjunctiveQuery(userQuery_atoms, distinguishedVars);
+    	
+    	// STEP 1: First we need to check whether the user query, together with its policy 
+    	// 			consequences , is entailed by the ontology
+    	Disjunction phi_pc_userQuery = phi_pc(userOCQ);
+    	SCentailed.add(phi_pc_userQuery);
+    	
+    	// Then, for each candidate clash query we build the corresponding clash formula
+    	for (OntologyConjunctiveQuery candidate_clash: Q) {
+    		Negation negatedClash = Clash(candidate_clash, userQuery_atoms, distinguishedVars);
+    		SCentailed.add(negatedClash);
+    	}
+    	
+    	
+    	return SCentailed;
+    	
+    	
+    }
     
     
     /*
@@ -1626,44 +1852,22 @@ private OntologyConjunctiveQuery apply_sigma(OntologyConjunctiveQuery q, Map<Ter
     
     private String format_query(String query) {
     	
-    	String formatted_query = "";
-    	formatted_query = query.replace(">", "");
-        formatted_query = formatted_query.replace("<", ":");
+    	/*
+    	 * Input: sparql query
+    	 * 
+    	 * Output: formatted sparql query
+    	 */
     	
-        return formatted_query;
-    }
-    
-    public void sql_exec_OCQ(OntologyConjunctiveQuery cq) throws PredicateArityException, TermTypeException, URISyntaxException, SQLificationException, DriverNotFoundException, SQLException {
-    	Set<Table> tables = new HashSet<>();
-    	
-    	// Initialize DB schema
-    	for (OWLAxiom a: tbox.getAxioms()) {
-    		if (a instanceof OWLDeclarationAxiom) {
-    			OWLDeclarationAxiom oda = (OWLDeclarationAxiom) a;
-    			OWLEntity entity = oda.getEntity();
-    			
-    			if (entity.isOWLClass()) {
-    				List<String> attributesNames = new ArrayList<>();
-    				attributesNames.add("attr1");
-    				tables.add(new Table(entity.getIRI().getShortForm(), attributesNames));
-    			}
-    			// I think I will have only OWLObjectProperties
-    			else if (entity.isOWLObjectProperty() || entity.isOWLDataProperty()) {
-    				List<String> attributesNames = new ArrayList<>();
-    				attributesNames.add("attr1");
-    				attributesNames.add("attr2");
-    				tables.add(new Table(entity.getIRI().getShortForm(), attributesNames));
-    			}
-    		}
+    	/*
+    	 * If the query starts with "ASK" then we replace it with "SELECT ?fakeVariable"
+    	 * This is just needed for the rewriting purposes, since TreeWitness does not accept
+    	 * queries starting with ASK
+    	 */
+    	if (query.startsWith("ASK")) {
+    		Variable fake = new Variable("fakeFreeVariable");
+    		query = query.replace("ASK", "SELECT ?" + fake);
+    		
     	}
-    	
-    	DBSchema schema = new DBSchema("dbName", tables);
-    	
-    	// Logger.debug("DB Schema: " + schema.getTables());
-    	
-    	String sparql_query = cq.toSparql();
-    	
-    	// Logger.debug("Converted in SPARQL: " + sparql_query);
     	
     	/*
     	 *  Correctly format the query. Given the OntologyCOnjunctiveQuery:
@@ -1677,40 +1881,47 @@ private OntologyConjunctiveQuery apply_sigma(OntologyConjunctiveQuery q, Map<Ter
     	 *  SELECT ?x, ?y
     	 *  WHERE { ?x :S ?y }
     	 */
-    	String formatted_query = format_query(sparql_query); 
     	
-    	//Logger.info("Formatted_query: " + formatted_query);
     	
-    	// Rewrite the query
-    	Set<OntologyConjunctiveQuery> rewrittenQuery = TreeWitnessClient.rewriteQuery(formatted_query, this.tbox, true);
+    	String formatted_query = "";
+    	formatted_query = query.replace(">", "");
+        formatted_query = formatted_query.replace("<", ":");
     	
-    	for (OntologyConjunctiveQuery q: rewrittenQuery) {
-        	System.out.println(q);
-        	//Logger.info("Free vars: " + q.getFreeVariables());
-        }
+        return formatted_query;
+    }
+    
+    public void sql_exec_OCQ(Conjunction SCentailed) throws PredicateArityException, TermTypeException, URISyntaxException, SQLificationException, DriverNotFoundException, SQLException {
     	
-    	Disjunction res = new Disjunction();
+    	/*
+    	 * Takes in input an OntologyConjunctiveQuery, rewrites it, generates the corresponding sql query and executes it
+    	 */
+    	Set<Table> tables = new HashSet<>();
     	
-    	for (OntologyConjunctiveQuery ocq: rewrittenQuery) {
-    		ocq.explicitNondistinguishedNonsharedVariables();
-    		Conjunction innerConjunction = new Conjunction();
-    		
-    		ArrayList<Variable> existentialVars = ocq.getQuantifiedVariables();
-    		
-    		Conjunction c = ocq.getBody();
-    		innerConjunction.add(c);
-    		
-    		if (!existentialVars.isEmpty()) {
-    			res.add(new Exist((Formula) innerConjunction, existentialVars));
-    		}
-    		else {
-    			res.add(innerConjunction);
+    	// Initialize DB schema
+    	for (OWLAxiom a: tbox.getAxioms()) {
+    		if (a instanceof OWLDeclarationAxiom) {
+    			OWLDeclarationAxiom oda = (OWLDeclarationAxiom) a;
+    			OWLEntity entity = oda.getEntity();
+    			
+    			if (entity.isOWLClass()) {
+    				List<String> attributesNames = new ArrayList<>();
+    				attributesNames.add("obj");
+    				tables.add(new Table(entity.getIRI().getShortForm(), attributesNames));
+    			}
+    			// I think I will have only OWLObjectProperties
+    			else if (entity.isOWLObjectProperty() || entity.isOWLDataProperty()) {
+    				List<String> attributesNames = new ArrayList<>();
+    				attributesNames.add("obj1");
+    				attributesNames.add("obj2");
+    				tables.add(new Table(entity.getIRI().getShortForm(), attributesNames));
+    			}
     		}
     	}
     	
-    	Logger.info("Disjunction: " + res);
+    	DBSchema schema = new DBSchema("dbName", tables);
+    
     	
-    	Formula f = (Formula) res;
+    	Formula f = (Formula) SCentailed;
     	f.unbindVariables();
     	
     	boolean distinct = true; 
@@ -1720,13 +1931,25 @@ private OntologyConjunctiveQuery apply_sigma(OntologyConjunctiveQuery q, Map<Ter
     	
     	sqlExecution(q1);
     	
+    
+    	
     }
     
     public int sqlExecution(String sqlQuery) throws DriverNotFoundException, SQLException {
     	
+    	/*
+    	 * Takes an SQL query and executes it over the relational database
+    	 */
+    	
+    	/*
+    	 * Uncomment to test connection first
+    	 * 
     	Logger.debug("Testing connection ...");
     	SQLConnection.testConnection(configuration);
     	Logger.debug("Testing went fine ...");
+    	*/
+    
+    	
     	Connection connection = new SQLConnection(configuration).getConnection();   
     	Statement stmt = connection.createStatement();
     	stmt.setQueryTimeout(3600); // 1 hour
@@ -1735,6 +1958,7 @@ private OntologyConjunctiveQuery apply_sigma(OntologyConjunctiveQuery q, Map<Ter
     	try {
     		rs = stmt.executeQuery(sqlQuery);
     	} catch (SQLException e) {
+    		// handle timeout exceptions
     		if (e.getMessage().toLowerCase().contains("timeout")) {
     			Logger.info("SQL EXECUTION TIME: TIMEOUT REACHED");
     			return -1;
@@ -1748,153 +1972,47 @@ private OntologyConjunctiveQuery apply_sigma(OntologyConjunctiveQuery q, Map<Ter
     	Logger.info("SQL EXECUTION TIME: " +
                 (endExecutionTime - startExecutionTime) / 1_000_000 + " milliseconds");
     	
-    	int counter = 0;
-    	while (rs.next()) {
-    		counter++;
-    	}
-    	Logger.info("Output size: " + counter);
+    	
+    	
+    	boolean print = true;		// → to print the result
+    	int counter = printResultSet(rs, print);
+    	
+    	Logger.info("Number of answers: " + counter);
     	
     	return counter;
     	
     }
     
     
-    
-    
-    
-    
-    
-    
-    /*
-     * SKIP
-     */
-    
-    
-    
-    
+    private int printResultSet(ResultSet rs, boolean print) throws SQLException {
+        ResultSetMetaData meta = rs.getMetaData();
+        int cols = meta.getColumnCount();
 
-    
-    public void sql_execution() throws SQLificationException, TermTypeException, IOException, URISyntaxException, PredicateArityException {
-    	Set<Table> tables = new HashSet<>();
-    	
-    	// Initialize DB schema
-    	for (OWLAxiom a: tbox.getAxioms()) {
-    		if (a instanceof OWLDeclarationAxiom) {
-    			OWLDeclarationAxiom oda = (OWLDeclarationAxiom) a;
-    			OWLEntity entity = oda.getEntity();
-    			
-    			if (entity.isOWLClass()) {
-    				List<String> attributesNames = new ArrayList<>();
-    				attributesNames.add("attr1");
-    				tables.add(new Table(entity.getIRI().getShortForm(), attributesNames));
-    			}
-    			// I think I will have only OWLObjectProperties
-    			else if (entity.isOWLObjectProperty() || entity.isOWLDataProperty()) {
-    				List<String> attributesNames = new ArrayList<>();
-    				attributesNames.add("attr1");
-    				attributesNames.add("attr2");
-    				tables.add(new Table(entity.getIRI().getShortForm(), attributesNames));
-    			}
-    		}
-    	}
-    	
-    	DBSchema schema = new DBSchema("dbName", tables);
-    	
-    	Logger.debug("DB schema: " + schema.getTables());
-    	
-    	/*
-    	 * Just for testing
-    	 */
-    	
-    	String sparql_query = Files.readString(Path.of(queryFilePath));
-        Logger.info("Read SARQL_query: \n" + sparql_query);
-       
-        
-        //Set<OntologyConjunctiveQuery> rewritten_query = rewrite(user_query);
-        Set<OntologyConjunctiveQuery> rewrittenQuery = TreeWitnessClient.rewriteQuery(sparql_query, this.tbox, true);
-        
-        //Set<OntologyConjunctiveQuery> rewrittenQuery = rewrite(sparql_query);
-        
-        //ArrayList<Variable> ExVars = user_query.getFreeVariables();
-        
-        
-        for (OntologyConjunctiveQuery q: rewrittenQuery) {
-        	System.out.println(q);
-        	//Logger.info("Free vars: " + q.getFreeVariables());
+        if (print) {
+		    // header
+		    for (int i = 1; i <= cols; i++) {
+		        System.out.print(meta.getColumnLabel(i) + " |" + "\t");
+		    }
+		    System.out.println();
         }
-        
-        // Convert query to a formula
-        Disjunction res = new Disjunction();
-        
-        int i = 0;
-        
-        for (OntologyConjunctiveQuery ocq: rewrittenQuery) {
-        	Conjunction c = ocq.getBody();
-        	// ArrayList<Variable> existentialVars = ocq.getQuantifiedVariables();
-        	ArrayList<Variable> existentialVars = ocq.getFreeVariables();
-        	
-        	
-        	if (!existentialVars.isEmpty()) { // && i == 0) {
-        		res.add(new Exist((Formula) c, existentialVars));
-        		//i += 1;
-        	}
-        	else {
-        		res.add(c);
-        	}
-        
-        	
-        }
-        
-        /*
-         * END: just for testing
-         */
-    	
-    	
-    	boolean distinct = true;
-    	
-    	// SQL conversion
-    	Formula f = (Formula) res;
-    	f.unbindVariables();
-    	String q = new SQLCompiler(schema).sqlify(f, new HashMap<>(), distinct);
-    	// String q1 = cleanConstantsName(q); //Remove http... prefixes
-    	
-    	Logger.info("SQL query: " + q);
-    }
-    
-    public int executeSQLQuery(String sqlQuery) throws DriverNotFoundException, SQLException {
-    	Connection connection = new SQLConnection(configuration).getConnection();
-    	Statement stmt = connection.createStatement();
-    	stmt.setQueryTimeout(3600);
-    	ResultSet rs = null;
-    	
-    	long startExecutionTime = System.nanoTime();
-    	
-    	try {
-    		rs = stmt.executeQuery(sqlQuery);
-    	} catch (SQLException e) {
-    		if (e.getMessage().toLowerCase().contains("timeout")) {
-    			Logger.info("SQL EXECUTION TIME: TIMEOUT REACHED");
-    			return -1;
-    		}
-    		e.printStackTrace();
-    	}
-    	
-    	Logger.info("Query Executed");
-    	
-    	long endExecutionTime = System.nanoTime();
-    	Logger.info("SQL execution time: " + 
-    				(endExecutionTime - startExecutionTime) / 1_000_000 + "milliseconds");
-    	
-    	int counter = 0;
+
+        int counter = 0;
+        // rows
         while (rs.next()) {
-            //Logger.info(rs.getString(1)); //print first column of the output table
-            counter++;
+        	if (print) {
+		        for (int i = 1; i <= cols; i++) {
+		            System.out.print(rs.getString(i) + " |" + "\t");
+		        }
+		        System.out.println();
+        	}
+        	counter++;
         }
-        Logger.info("Output size: " + counter);
-
+        
         return counter;
     }
     
+    
+
     
     private String cleanConstantsName(String s) {
         String regex = "\"[^\\s#]+#([^\\s#]+)\"";
